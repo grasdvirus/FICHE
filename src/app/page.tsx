@@ -204,7 +204,7 @@ const FicheApp = () => {
               <div className={`max-w-2xl p-4 rounded-2xl shadow-sm ${
                 message.type === 'user' 
                   ? 'bg-gradient-to-r from-primary to-accent text-white rounded-br-none' 
-                  : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
+                  : 'bg-white border border-gray-200 text-foreground rounded-bl-none'
               }`}>
                 <p className="mb-2 whitespace-pre-wrap">{message.content}</p>
                 {message.type === 'ai' && (
@@ -217,7 +217,7 @@ const FicheApp = () => {
                         </h4>
                         <div className="space-y-2">
                           {message.suggestions.map((suggestion, i) => (
-                            <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-primary">
+                            <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-secondary-foreground">
                               {suggestion}
                             </div>
                           ))}
@@ -229,7 +229,7 @@ const FicheApp = () => {
                         <h4 className="font-semibold text-accent mb-2 flex items-center">💡 Idées créatives</h4>
                         <div className="space-y-2">
                           {message.ideas.map((idea, i) => (
-                            <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-accent">
+                            <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-secondary-foreground">
                               {idea}
                             </div>
                           ))}
@@ -238,10 +238,10 @@ const FicheApp = () => {
                     )}
                     {message.actions && message.actions.length > 0 && (
                       <div className="pt-2">
-                        <h4 className="font-semibold text-chart-3 mb-2 flex items-center">🎯 Actions possibles</h4>
+                        <h4 className="font-semibold text-secondary-foreground mb-2 flex items-center">🎯 Actions possibles</h4>
                         <div className="space-y-2">
                           {message.actions.map((action, i) => (
-                            <div key={i} className="bg-chart-3/10 p-3 rounded-lg text-sm text-chart-3">
+                            <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-secondary-foreground">
                               {action}
                             </div>
                           ))}
@@ -398,7 +398,7 @@ const FicheApp = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="h-screen bg-background flex">
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col h-screen shadow-sm">
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center space-x-3">
