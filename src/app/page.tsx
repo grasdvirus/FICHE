@@ -30,11 +30,16 @@ import { analyzeText } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
-
-type UserProfile = {
-  name: string;
-  email: string;
-};
+import { auth, db } from '@/lib/firebase';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  updateProfile,
+  User as FirebaseUser
+} from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
 
 type ChatMessage = {
   type: 'user' | 'ai';
@@ -65,10 +70,13 @@ type FileInfo = {
 type ActiveTab = 'chat' | 'communities' | 'files' | 'messages' | 'settings';
 
 const FicheApp = () => {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
-  const [showAuth, setShowAuth] = useState(true);
+  const [isAuthenticating, setIsAuthenticating] = useState(true);
   const [authMode, setAuthMode] = useState('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [userText, setUserText] = useState('');
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -86,6 +94,14 @@ const FicheApp = () => {
   const audioRefs = useRef<Map<number, HTMLAudioElement | null>>(new Map());
   const { toast } = useToast();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setIsAuthenticating(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
@@ -112,10 +128,50 @@ const FicheApp = () => {
     }
   }, [chatHistory]);
 
-  const handleAuth = () => {
-    setCurrentUser({ name: 'Utilisateur', email: 'user@example.com' });
-    setShowAuth(false);
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name) {
+      toast({ variant: "destructive", title: 'Erreur', description: "Le nom est requis." });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(userCredential.user, { displayName: name });
+      
+      await setDoc(doc(db, "users", userCredential.user.uid), {
+        name: name,
+        email: email,
+      });
+
+      toast({ title: 'Compte créé', description: 'Vous êtes maintenant connecté.' });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: 'Erreur', description: error.message });
+    }
+    setIsLoading(false);
   };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      toast({ title: 'Connexion réussie', description: 'Bienvenue !' });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: 'Erreur', description: error.message });
+    }
+    setIsLoading(false);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      toast({ title: 'Déconnexion', description: 'Vous avez été déconnecté.' });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: 'Erreur', description: error.message });
+    }
+  };
+
 
   const handleTextSubmit = async () => {
     if (!userText.trim()) return;
@@ -155,34 +211,31 @@ const FicheApp = () => {
     setIsLoading(false);
   };
 
-  const handlePlayAudio = async (index: number) => {
+  const handlePlayAudio = (index: number) => {
     const clickedAudio = audioRefs.current.get(index);
     if (!clickedAudio) return;
-
+  
     if (activeAudioIndex !== null && activeAudioIndex !== index) {
-        const activeAudio = audioRefs.current.get(activeAudioIndex);
-        if (activeAudio) {
-            activeAudio.pause();
-            activeAudio.currentTime = 0;
-        }
+      const activeAudio = audioRefs.current.get(activeAudioIndex);
+      if (activeAudio) {
+        activeAudio.pause();
+      }
     }
-
+  
     if (clickedAudio.paused) {
-      if (clickedAudio.ended) {
-          clickedAudio.currentTime = 0;
-      }
-      try {
-          await clickedAudio.play();
-          setActiveAudioIndex(index);
-      } catch (error) {
+      clickedAudio.play().then(() => {
+        setActiveAudioIndex(index);
+      }).catch(error => {
+        if (error.name !== 'AbortError') {
           console.error("Error playing audio:", error);
-          if (activeAudioIndex === index) {
-            setActiveAudioIndex(null);
-          }
-      }
+        }
+        if (activeAudioIndex === index) {
+          setActiveAudioIndex(null);
+        }
+      });
     } else {
-        clickedAudio.pause();
-        setActiveAudioIndex(null);
+      clickedAudio.pause();
+      setActiveAudioIndex(null);
     }
   };
 
@@ -197,12 +250,12 @@ const FicheApp = () => {
 
   const handleLike = (index: number) => {
     setChatHistory(prev => {
-      return prev.map((msg, i) => {
-        if (i === index) {
-          return { ...msg, liked: !msg.liked };
-        }
-        return msg;
-      });
+      const newHistory = [...prev];
+      const message = newHistory[index];
+      if (message.type === 'ai') {
+        message.liked = !message.liked;
+      }
+      return newHistory;
     });
   };
 
@@ -240,37 +293,47 @@ const FicheApp = () => {
           </button>
         </div>
 
-        <div className="space-y-4">
+        <form onSubmit={authMode === 'login' ? handleLogin : handleRegister} className="space-y-4">
+           {authMode === 'register' && (
+            <div>
+              <input
+                type="text"
+                placeholder="Nom complet"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-transparent rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+                required
+              />
+            </div>
+          )}
           <div>
             <input
               type="email"
               placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-transparent rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+              required
             />
           </div>
           <div>
             <input
               type="password"
               placeholder="Mot de passe"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-transparent rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+              required
             />
           </div>
-          {authMode === 'register' && (
-            <div>
-              <input
-                type="text"
-                placeholder="Nom complet"
-                className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-transparent rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
-              />
-            </div>
-          )}
           <button
-            onClick={handleAuth}
-            className="w-full bg-gradient-to-r from-primary to-accent text-white py-3 rounded-lg font-medium hover:opacity-90 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]"
+            type="submit"
+            disabled={isLoading}
+            className="w-full bg-gradient-to-r from-primary to-accent text-white py-3 rounded-lg font-medium hover:opacity-90 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
           >
-            {authMode === 'login' ? 'Se connecter' : 'Créer un compte'}
+            {isLoading ? 'Chargement...' : (authMode === 'login' ? 'Se connecter' : 'Créer un compte')}
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );
@@ -305,7 +368,7 @@ const FicheApp = () => {
                           </h4>
                           <div className="space-y-2">
                             {message.suggestions.map((suggestion, i) => (
-                              <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-foreground">
+                              <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-black dark:text-white">
                                 {suggestion}
                               </div>
                             ))}
@@ -317,7 +380,7 @@ const FicheApp = () => {
                            <h4 className="font-semibold text-accent dark:text-yellow-400 mb-2 flex items-center">💡 Idées créatives</h4>
                            <div className="space-y-2">
                             {message.ideas.map((idea, i) => (
-                              <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-foreground">
+                              <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-black dark:text-white">
                                 {idea}
                               </div>
                             ))}
@@ -326,10 +389,10 @@ const FicheApp = () => {
                       )}
                       {message.actions && message.actions.length > 0 && (
                         <div className="pt-2">
-                           <h4 className="font-semibold text-secondary-foreground mb-2 flex items-center">🎯 Actions possibles</h4>
+                           <h4 className="font-semibold text-foreground mb-2 flex items-center">🎯 Actions possibles</h4>
                            <div className="space-y-2">
                             {message.actions.map((action, i) => (
-                              <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-foreground">
+                              <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-black dark:text-white">
                                 {action}
                               </div>
                             ))}
@@ -345,6 +408,9 @@ const FicheApp = () => {
                             src={message.audioDataUri}
                             preload="none"
                             onEnded={() => setActiveAudioIndex(null)}
+                            onPause={() => {
+                              if (activeAudioIndex === index) setActiveAudioIndex(null)
+                            }}
                           />
                           <button
                             onClick={() => handlePlayAudio(index)}
@@ -539,11 +605,11 @@ const FicheApp = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">Nom complet</label>
-                            <input type="text" defaultValue={currentUser?.name} className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 bg-transparent text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all" />
+                            <input type="text" defaultValue={currentUser?.displayName || ''} className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 bg-transparent text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all" />
                         </div>
                         <div>
                             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">Adresse e-mail</label>
-                            <input type="email" defaultValue={currentUser?.email} className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 bg-transparent text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all" />
+                            <input type="email" defaultValue={currentUser?.email || ''} className="w-full px-4 py-2 border border-gray-200 dark:border-gray-600 bg-transparent text-foreground rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all" />
                         </div>
                     </div>
                     <div className="flex justify-end pt-2">
@@ -611,7 +677,15 @@ const FicheApp = () => {
     </div>
   );
 
-  if (showAuth) {
+  if (isAuthenticating) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-background">
+        <div className="animate-spin rounded-full h-16 w-16 border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
     return <AuthForm />;
   }
 
@@ -658,15 +732,12 @@ const FicheApp = () => {
               <User className="w-5 h-5 text-gray-600 dark:text-gray-400" />
             </div>
             <div>
-              <p className="font-medium text-gray-800 dark:text-gray-200">{currentUser?.name}</p>
+              <p className="font-medium text-gray-800 dark:text-gray-200">{currentUser?.displayName || 'Utilisateur'}</p>
               <p className="text-sm text-gray-600 dark:text-gray-400">{currentUser?.email}</p>
             </div>
           </div>
           <button
-            onClick={() => {
-              setCurrentUser(null);
-              setShowAuth(true);
-            }}
+            onClick={handleLogout}
             className="w-full flex items-center justify-center space-x-2 px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
           >
             <LogOut className="w-4 h-4" />
@@ -687,4 +758,3 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
-
