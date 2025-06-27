@@ -134,23 +134,26 @@ const FicheApp = () => {
   };
 
   const handlePlayAudio = (index: number) => {
-    const audioEl = audioRefs.current.get(index);
-    if (!audioEl) return;
+    const clickedAudio = audioRefs.current.get(index);
+    if (!clickedAudio) return;
 
     if (activeAudioIndex !== null && activeAudioIndex !== index) {
-      const currentAudioEl = audioRefs.current.get(activeAudioIndex);
-      if (currentAudioEl) {
-        currentAudioEl.pause();
-        currentAudioEl.currentTime = 0;
-      }
+        const activeAudio = audioRefs.current.get(activeAudioIndex);
+        if (activeAudio) {
+            activeAudio.pause();
+            activeAudio.currentTime = 0;
+        }
     }
 
-    if (audioEl.paused) {
-      audioEl.play().catch(e => console.error("Error playing audio:", e));
-      setActiveAudioIndex(index);
+    if (clickedAudio.paused) {
+        if (clickedAudio.ended) {
+            clickedAudio.currentTime = 0;
+        }
+        clickedAudio.play().catch(e => console.error("Error playing audio:", e));
+        setActiveAudioIndex(index);
     } else {
-      audioEl.pause();
-      setActiveAudioIndex(null);
+        clickedAudio.pause();
+        setActiveAudioIndex(null);
     }
   };
 
@@ -273,7 +276,7 @@ const FicheApp = () => {
                           </h4>
                           <div className="space-y-2">
                             {message.suggestions.map((suggestion, i) => (
-                              <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-primary-foreground">
+                              <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-foreground">
                                 {suggestion}
                               </div>
                             ))}
@@ -285,7 +288,7 @@ const FicheApp = () => {
                           <h4 className="font-semibold text-accent mb-2 flex items-center">💡 Idées créatives</h4>
                           <div className="space-y-2">
                             {message.ideas.map((idea, i) => (
-                              <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-accent-foreground">
+                              <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-foreground">
                                 {idea}
                               </div>
                             ))}
@@ -297,7 +300,7 @@ const FicheApp = () => {
                           <h4 className="font-semibold text-secondary-foreground mb-2 flex items-center">🎯 Actions possibles</h4>
                           <div className="space-y-2">
                             {message.actions.map((action, i) => (
-                              <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-secondary-foreground">
+                              <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-foreground">
                                 {action}
                               </div>
                             ))}
