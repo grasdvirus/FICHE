@@ -19,9 +19,14 @@ import {
   Eye,
   Heart,
   Share2,
-  Filter
+  Filter,
+  Volume2,
+  Copy,
+  ThumbsUp
 } from 'lucide-react';
 import { analyzeText } from '@/ai/flows/analyze-text';
+import { textToSpeech } from '@/ai/flows/text-to-speech';
+import { useToast } from "@/hooks/use-toast";
 
 type UserProfile = {
   name: string;
@@ -35,6 +40,8 @@ type ChatMessage = {
   ideas?: string[];
   actions?: string[];
   timestamp: Date;
+  audioDataUri?: string;
+  liked?: boolean;
 };
 
 type Community = {
@@ -72,6 +79,8 @@ const FicheApp = () => {
     { id: 2, name: 'Présentation IA.pptx', size: '5.1 MB', date: '2025-06-24', author: 'Jean Martin' }
   ]);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const audioRefs = useRef<Map<number, HTMLAudioElement | null>>(new Map());
+  const { toast } = useToast();
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -95,6 +104,7 @@ const FicheApp = () => {
 
     try {
       const aiData = await analyzeText({ text: currentText });
+      const audioResult = await textToSpeech({ text: aiData.explanation });
       
       const aiMessage: ChatMessage = {
         type: 'ai',
@@ -102,7 +112,9 @@ const FicheApp = () => {
         suggestions: aiData.suggestions,
         ideas: aiData.ideas,
         actions: aiData.actions,
-        timestamp: new Date()
+        timestamp: new Date(),
+        audioDataUri: audioResult.media,
+        liked: false,
       };
       
       setChatHistory(prev => [...prev, aiMessage]);
@@ -117,6 +129,33 @@ const FicheApp = () => {
     }
     
     setIsLoading(false);
+  };
+
+  const handlePlayAudio = (index: number) => {
+    const audioEl = audioRefs.current.get(index);
+    if (audioEl) {
+      audioEl.play().catch(e => console.error("Error playing audio:", e));
+    }
+  };
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      toast({
+        title: 'Copié',
+        description: 'Le texte a été copié dans le presse-papiers.',
+      });
+    });
+  };
+
+  const handleLike = (index: number) => {
+    setChatHistory(prev => {
+      return prev.map((msg, i) => {
+        if (i === index) {
+          return { ...msg, liked: !msg.liked };
+        }
+        return msg;
+      });
+    });
   };
 
   const AuthForm = () => (
@@ -208,47 +247,85 @@ const FicheApp = () => {
               }`}>
                 <p className="mb-2 whitespace-pre-wrap">{message.content}</p>
                 {message.type === 'ai' && (
-                  <div className="mt-4 space-y-3">
-                    {message.suggestions && message.suggestions.length > 0 && (
-                      <div>
-                        <h4 className="font-semibold text-primary mb-2 flex items-center">
-                          <Sparkles className="w-4 h-4 mr-2" />
-                          Suggestions
-                        </h4>
-                        <div className="space-y-2">
-                          {message.suggestions.map((suggestion, i) => (
-                            <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-secondary-foreground">
-                              {suggestion}
-                            </div>
-                          ))}
+                  <>
+                    <div className="mt-4 space-y-3">
+                      {message.suggestions && message.suggestions.length > 0 && (
+                        <div>
+                          <h4 className="font-semibold text-primary mb-2 flex items-center">
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            Suggestions
+                          </h4>
+                          <div className="space-y-2">
+                            {message.suggestions.map((suggestion, i) => (
+                              <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-foreground">
+                                {suggestion}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    {message.ideas && message.ideas.length > 0 && (
-                      <div className="pt-2">
-                        <h4 className="font-semibold text-accent mb-2 flex items-center">💡 Idées créatives</h4>
-                        <div className="space-y-2">
-                          {message.ideas.map((idea, i) => (
-                            <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-secondary-foreground">
-                              {idea}
-                            </div>
-                          ))}
+                      )}
+                      {message.ideas && message.ideas.length > 0 && (
+                        <div className="pt-2">
+                          <h4 className="font-semibold text-accent mb-2 flex items-center">💡 Idées créatives</h4>
+                          <div className="space-y-2">
+                            {message.ideas.map((idea, i) => (
+                              <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-foreground">
+                                {idea}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    {message.actions && message.actions.length > 0 && (
-                      <div className="pt-2">
-                        <h4 className="font-semibold text-secondary-foreground mb-2 flex items-center">🎯 Actions possibles</h4>
-                        <div className="space-y-2">
-                          {message.actions.map((action, i) => (
-                            <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-secondary-foreground">
-                              {action}
-                            </div>
-                          ))}
+                      )}
+                      {message.actions && message.actions.length > 0 && (
+                        <div className="pt-2">
+                          <h4 className="font-semibold text-secondary-foreground mb-2 flex items-center">🎯 Actions possibles</h4>
+                          <div className="space-y-2">
+                            {message.actions.map((action, i) => (
+                              <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-secondary-foreground">
+                                {action}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-gray-200/50 flex items-center space-x-1">
+                      {message.audioDataUri && (
+                        <>
+                          <audio
+                            ref={(el) => audioRefs.current.set(index, el)}
+                            src={message.audioDataUri}
+                            preload="none"
+                          />
+                          <button
+                            onClick={() => handlePlayAudio(index)}
+                            className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"
+                            aria-label="Lire l'audio"
+                          >
+                            <Volume2 className="w-5 h-5" />
+                          </button>
+                        </>
+                      )}
+                      <button
+                        onClick={() => handleCopy(message.content)}
+                        className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"
+                        aria-label="Copier le texte"
+                      >
+                        <Copy className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => handleLike(index)}
+                        className={`p-2 rounded-full transition-colors ${
+                          message.liked
+                            ? 'text-primary hover:bg-primary/10'
+                            : 'text-gray-500 hover:bg-gray-100'
+                        }`}
+                        aria-label="Aimer"
+                      >
+                        <ThumbsUp className={`w-5 h-5 ${message.liked ? 'fill-primary' : ''}`} />
+                      </button>
+                    </div>
+                  </>
                 )}
               </div>
                 {message.type === 'user' && <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center shrink-0"><User className="w-5 h-5 text-white"/></div>}
