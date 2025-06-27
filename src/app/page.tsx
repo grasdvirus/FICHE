@@ -21,6 +21,7 @@ import {
   Share2,
   Filter,
   Volume2,
+  Pause,
   Copy,
   ThumbsUp
 } from 'lucide-react';
@@ -78,6 +79,7 @@ const FicheApp = () => {
     { id: 1, name: 'Guide React.pdf', size: '2.4 MB', date: '2025-06-25', author: 'Marie Dubois' },
     { id: 2, name: 'Présentation IA.pptx', size: '5.1 MB', date: '2025-06-24', author: 'Jean Martin' }
   ]);
+  const [activeAudioIndex, setActiveAudioIndex] = useState<number | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const audioRefs = useRef<Map<number, HTMLAudioElement | null>>(new Map());
   const { toast } = useToast();
@@ -133,8 +135,22 @@ const FicheApp = () => {
 
   const handlePlayAudio = (index: number) => {
     const audioEl = audioRefs.current.get(index);
-    if (audioEl) {
+    if (!audioEl) return;
+
+    if (activeAudioIndex !== null && activeAudioIndex !== index) {
+      const currentAudioEl = audioRefs.current.get(activeAudioIndex);
+      if (currentAudioEl) {
+        currentAudioEl.pause();
+        currentAudioEl.currentTime = 0;
+      }
+    }
+
+    if (audioEl.paused) {
       audioEl.play().catch(e => console.error("Error playing audio:", e));
+      setActiveAudioIndex(index);
+    } else {
+      audioEl.pause();
+      setActiveAudioIndex(null);
     }
   };
 
@@ -257,7 +273,7 @@ const FicheApp = () => {
                           </h4>
                           <div className="space-y-2">
                             {message.suggestions.map((suggestion, i) => (
-                              <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-foreground">
+                              <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-primary-foreground">
                                 {suggestion}
                               </div>
                             ))}
@@ -269,7 +285,7 @@ const FicheApp = () => {
                           <h4 className="font-semibold text-accent mb-2 flex items-center">💡 Idées créatives</h4>
                           <div className="space-y-2">
                             {message.ideas.map((idea, i) => (
-                              <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-foreground">
+                              <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-accent-foreground">
                                 {idea}
                               </div>
                             ))}
@@ -296,13 +312,14 @@ const FicheApp = () => {
                             ref={(el) => audioRefs.current.set(index, el)}
                             src={message.audioDataUri}
                             preload="none"
+                            onEnded={() => setActiveAudioIndex(null)}
                           />
                           <button
                             onClick={() => handlePlayAudio(index)}
                             className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"
-                            aria-label="Lire l'audio"
+                            aria-label={activeAudioIndex === index ? "Mettre en pause" : "Lire l'audio"}
                           >
-                            <Volume2 className="w-5 h-5" />
+                            {activeAudioIndex === index ? <Pause className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                           </button>
                         </>
                       )}
