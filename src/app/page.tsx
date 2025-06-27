@@ -133,7 +133,7 @@ const FicheApp = () => {
     setIsLoading(false);
   };
 
-  const handlePlayAudio = (index: number) => {
+  const handlePlayAudio = async (index: number) => {
     const clickedAudio = audioRefs.current.get(index);
     if (!clickedAudio) return;
 
@@ -149,8 +149,13 @@ const FicheApp = () => {
         if (clickedAudio.ended) {
             clickedAudio.currentTime = 0;
         }
-        clickedAudio.play().catch(e => console.error("Error playing audio:", e));
-        setActiveAudioIndex(index);
+        try {
+            await clickedAudio.play();
+            setActiveAudioIndex(index);
+        } catch (error) {
+            console.error("Error playing audio:", error);
+            setActiveAudioIndex(null);
+        }
     } else {
         clickedAudio.pause();
         setActiveAudioIndex(null);
