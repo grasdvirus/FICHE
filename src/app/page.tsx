@@ -130,25 +130,27 @@ const FicheApp = () => {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name) {
-      toast({ variant: "destructive", title: 'Erreur', description: "Le nom est requis." });
+    if (!name.trim()) {
+      toast({ variant: 'destructive', title: 'Erreur', description: 'Le nom est requis.' });
       return;
     }
     setIsLoading(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(userCredential.user, { displayName: name });
-      
-      await setDoc(doc(db, "users", userCredential.user.uid), {
+
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
         name: name,
         email: email,
+        createdAt: new Date(),
       });
 
       toast({ title: 'Compte créé', description: 'Vous êtes maintenant connecté.' });
     } catch (error: any) {
-      toast({ variant: "destructive", title: 'Erreur', description: error.message });
+      toast({ variant: 'destructive', title: "Erreur d'inscription", description: error.message });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -158,9 +160,10 @@ const FicheApp = () => {
       await signInWithEmailAndPassword(auth, email, password);
       toast({ title: 'Connexion réussie', description: 'Bienvenue !' });
     } catch (error: any) {
-      toast({ variant: "destructive", title: 'Erreur', description: error.message });
+      toast({ variant: 'destructive', title: 'Erreur de connexion', description: error.message });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleLogout = async () => {
