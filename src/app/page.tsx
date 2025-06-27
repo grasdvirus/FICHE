@@ -217,7 +217,7 @@ const FicheApp = () => {
                         </h4>
                         <div className="space-y-2">
                           {message.suggestions.map((suggestion, i) => (
-                            <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-primary-foreground/90">
+                            <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-primary">
                               {suggestion}
                             </div>
                           ))}
@@ -226,10 +226,10 @@ const FicheApp = () => {
                     )}
                     {message.ideas && message.ideas.length > 0 && (
                       <div className="pt-2">
-                        <h4 className="font-semibold text-green-600 mb-2 flex items-center">💡 Idées créatives</h4>
+                        <h4 className="font-semibold text-accent mb-2 flex items-center">💡 Idées créatives</h4>
                         <div className="space-y-2">
                           {message.ideas.map((idea, i) => (
-                            <div key={i} className="bg-green-50 p-3 rounded-lg text-sm text-green-800">
+                            <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-accent">
                               {idea}
                             </div>
                           ))}
@@ -238,10 +238,10 @@ const FicheApp = () => {
                     )}
                     {message.actions && message.actions.length > 0 && (
                       <div className="pt-2">
-                        <h4 className="font-semibold text-purple-600 mb-2 flex items-center">🎯 Actions possibles</h4>
+                        <h4 className="font-semibold text-chart-3 mb-2 flex items-center">🎯 Actions possibles</h4>
                         <div className="space-y-2">
                           {message.actions.map((action, i) => (
-                            <div key={i} className="bg-purple-50 p-3 rounded-lg text-sm text-purple-800">
+                            <div key={i} className="bg-chart-3/10 p-3 rounded-lg text-sm text-chart-3">
                               {action}
                             </div>
                           ))}
