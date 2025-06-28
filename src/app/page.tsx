@@ -24,7 +24,8 @@ import {
   Volume2,
   Pause,
   Copy,
-  ThumbsUp
+  ThumbsUp,
+  RotateCw
 } from 'lucide-react';
 import { analyzeText } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
@@ -298,6 +299,11 @@ const FicheApp = () => {
     
     setIsLoading(false);
   };
+  
+  const handleNewChat = () => {
+    setChatHistory([]);
+    toast({ title: 'Nouvelle discussion', description: 'La conversation a été réinitialisée.' });
+  };
 
   const handlePlayAudio = (index: number) => {
     if (activeAudioIndex === index) {
@@ -521,6 +527,14 @@ const FicheApp = () => {
               }}
             />
           </div>
+          <button
+            onClick={handleNewChat}
+            disabled={isLoading}
+            className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 p-3 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Nouvelle discussion"
+          >
+            <RotateCw className="w-5 h-5" />
+          </button>
           <button
             onClick={handleTextSubmit}
             disabled={!userText.trim() || isLoading}
