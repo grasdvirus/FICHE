@@ -27,14 +27,16 @@ import {
   Copy,
   ThumbsUp,
   RotateCw,
-  Check
+  Check,
+  Edit
 } from 'lucide-react';
 import { analyzeText } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
+import { generateCommunityImage } from '@/ai/flows/generate-community-image';
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
-import { auth, db } from '@/lib/firebase';
+import { auth, db, storage } from '@/lib/firebase';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -43,12 +45,14 @@ import {
   updateProfile,
   User as FirebaseUser
 } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
+import { getStorage, ref as storageRef, uploadString, getDownloadURL } from "firebase/storage";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Separator } from '@/components/ui/separator';
 
 type ChatMessage = {
   type: 'user' | 'ai';
@@ -67,6 +71,7 @@ type Community = {
   members: number;
   description: string;
   imageUrl: string;
+  creatorId: string;
   dataAiHint: string;
   subscribed: boolean;
 };
@@ -260,7 +265,7 @@ const ChatMessageDisplay = React.memo(
                       <AccordionContent>
                         <div className="space-y-2 pt-1 pb-2">
                           {message.suggestions.map((suggestion, i) => (
-                            <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-foreground">
+                            <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-black dark:text-foreground">
                               {suggestion}
                             </div>
                           ))}
@@ -276,7 +281,7 @@ const ChatMessageDisplay = React.memo(
                       <AccordionContent>
                         <div className="space-y-2 pt-1 pb-2">
                           {message.ideas.map((idea, i) => (
-                            <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-foreground">
+                            <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-black dark:text-foreground">
                               {idea}
                             </div>
                           ))}
@@ -286,13 +291,13 @@ const ChatMessageDisplay = React.memo(
                   )}
                   {message.actions && message.actions.length > 0 && (
                     <AccordionItem value="actions" className="border-b-0">
-                      <AccordionTrigger className="py-2 font-semibold text-foreground hover:no-underline">
+                      <AccordionTrigger className="py-2 font-semibold text-black dark:text-foreground hover:no-underline">
                         <div className="flex items-center">🎯 Actions possibles</div>
                       </AccordionTrigger>
                       <AccordionContent>
                         <div className="space-y-2 pt-1 pb-2">
                           {message.actions.map((action, i) => (
-                            <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-foreground">
+                            <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-black dark:text-foreground">
                               {action}
                             </div>
                           ))}
@@ -360,9 +365,20 @@ const FicheApp = () => {
   const audioPlayer = useRef<HTMLAudioElement | null>(null);
   const [audioStatus, setAudioStatus] = useState({ playingIndex: -1 });
 
-  const [isCreateCommunityOpen, setIsCreateCommunityOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  useEffect(() => {
+    const q = query(collection(db, "communities"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const communitiesData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        // This is a simplification. Real subscription logic would be more complex.
+        subscribed: doc.data().members?.includes(auth.currentUser?.uid) 
+      })) as Community[];
+      setCommunities(communitiesData);
+    });
 
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -372,9 +388,11 @@ const FicheApp = () => {
         const onEnded = () => setAudioStatus({ playingIndex: -1 });
 
         player.addEventListener('ended', onEnded);
+        player.addEventListener('pause', onEnded);
 
         return () => {
             player.removeEventListener('ended', onEnded);
+            player.removeEventListener('pause', onEnded);
             player.pause();
         };
     }
@@ -392,11 +410,12 @@ const FicheApp = () => {
           player.play().catch(e => {
             if (e.name !== 'AbortError') {
               console.error("Error playing audio:", e)
+              toast({ variant: 'destructive', title: "Erreur audio", description: "Impossible de lire le fichier audio."})
             }
           });
           setAudioStatus({ playingIndex: index });
       }
-  }, [audioStatus.playingIndex]);
+  }, [audioStatus.playingIndex, toast]);
 
 
   useEffect(() => {
@@ -506,6 +525,7 @@ const FicheApp = () => {
 
   const handleSubscribe = (communityId: string) => {
     let communityName = '';
+    // This is a mock implementation. Real implementation would update Firestore.
     const newCommunities = communities.map(community => {
       if (community.id === communityId) {
         communityName = community.name;
@@ -605,14 +625,21 @@ const FicheApp = () => {
     const [isCreateCommunityOpen, setIsCreateCommunityOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
 
-    const filteredCommunities = communities.filter(community =>
+    const myCommunities = communities.filter(
+        (community) => community.creatorId === currentUser?.uid
+    );
+    const otherCommunities = communities.filter(
+        (community) => community.creatorId !== currentUser?.uid
+    );
+
+    const filteredOtherCommunities = otherCommunities.filter(community =>
       community.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     return (
       <div className="p-6 overflow-y-auto h-full bg-gray-50/50 dark:bg-gray-900/50">
         <div className="flex justify-between items-center mb-8">
-          <h2 className="text-2xl font-headline font-bold text-gray-800 dark:text-gray-200">Rejoindre des Communautés</h2>
+          <h2 className="text-2xl font-headline font-bold text-gray-800 dark:text-gray-200">Communautés</h2>
           <div className="flex items-center gap-4">
              <div className="relative">
               <Input
@@ -633,9 +660,44 @@ const FicheApp = () => {
           </div>
         </div>
         
-        {filteredCommunities.length > 0 ? (
+        {myCommunities.length > 0 && (
+          <div className='mb-12'>
+            <h3 className="text-xl font-headline font-semibold text-gray-700 dark:text-gray-300 mb-6">Mes communautés</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-8">
+                {myCommunities.map(community => (
+                  <div key={community.id} className="flex flex-col items-center justify-center gap-3 text-center transition-transform transform hover:-translate-y-1">
+                    <div className="relative">
+                      <div className="w-28 h-28 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden shadow-lg border-4 border-white dark:border-card hover:shadow-xl transition-shadow">
+                        <Image
+                          src={community.imageUrl}
+                          alt={community.name}
+                          width={112}
+                          height={112}
+                          className="object-cover w-full h-full"
+                          data-ai-hint={community.name}
+                        />
+                      </div>
+                       <button
+                          className={`absolute -bottom-1 -right-1 w-9 h-9 rounded-full flex items-center justify-center text-white shadow-md transition-all duration-300 transform hover:scale-110 border-2 border-white dark:border-card bg-blue-500 hover:bg-blue-600`}
+                          aria-label={`Modifier ${community.name}`}
+                        >
+                          <Edit className="w-5 h-5" />
+                        </button>
+                    </div>
+                    <span className="font-semibold text-gray-800 dark:text-gray-200 mt-1">{community.name}</span>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">{community.members || 1} membres</p>
+                  </div>
+                ))}
+            </div>
+            <Separator className="my-8" />
+          </div>
+        )}
+        
+        <h3 className="text-xl font-headline font-semibold text-gray-700 dark:text-gray-300 mb-6">Découvrir</h3>
+
+        {filteredOtherCommunities.length > 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-8">
-            {filteredCommunities.map(community => (
+            {filteredOtherCommunities.map(community => (
               <div key={community.id} className="flex flex-col items-center justify-center gap-3 text-center transition-transform transform hover:-translate-y-1">
                 <div className="relative">
                   <div className="w-28 h-28 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden shadow-lg border-4 border-white dark:border-card hover:shadow-xl transition-shadow">
@@ -645,7 +707,7 @@ const FicheApp = () => {
                       width={112}
                       height={112}
                       className="object-cover w-full h-full"
-                      data-ai-hint={community.dataAiHint}
+                      data-ai-hint={community.name}
                     />
                   </div>
                   <button
@@ -661,7 +723,7 @@ const FicheApp = () => {
                   </button>
                 </div>
                 <span className="font-semibold text-gray-800 dark:text-gray-200 mt-1">{community.name}</span>
-                <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">{community.members} membres</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">{community.members || 1} membres</p>
               </div>
             ))}
           </div>
@@ -672,15 +734,16 @@ const FicheApp = () => {
             <p className="text-gray-500 dark:text-gray-400">Soyez le premier à en créer une !</p>
           </div>
         )}
-        <CreateCommunityDialog isOpen={isCreateCommunityOpen} onOpenChange={setIsCreateCommunityOpen} />
+        <CreateCommunityDialog isOpen={isCreateCommunityOpen} onOpenChange={setIsCreateCommunityOpen} currentUser={currentUser} />
       </div>
     );
   };
   
-  const CreateCommunityDialog = ({ isOpen, onOpenChange }: { isOpen: boolean, onOpenChange: (open: boolean) => void }) => {
+  const CreateCommunityDialog = ({ isOpen, onOpenChange, currentUser }: { isOpen: boolean, onOpenChange: (open: boolean) => void, currentUser: FirebaseUser | null }) => {
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isCreating, setIsCreating] = useState(false);
     const { toast } = useToast();
 
     const handleGenerateDescription = async () => {
@@ -701,12 +764,43 @@ const FicheApp = () => {
     };
     
     const handleCreate = async () => {
-        // TODO: Mettre en œuvre la logique de création de la communauté, y compris le stockage dans Firestore.
-        console.log("Creating community:", { name, description });
-        toast({ title: "Communauté créée", description: `La communauté "${name}" a été créée avec succès.` });
-        onOpenChange(false);
-        setName('');
-        setDescription('');
+        if (!name.trim() || !description.trim() || !currentUser) {
+            toast({ variant: "destructive", title: "Erreur", description: "Le nom et la description sont requis." });
+            return;
+        }
+
+        setIsCreating(true);
+        try {
+            // 1. Generate Image
+            const imageResult = await generateCommunityImage({ prompt: name });
+            const imageDataUri = imageResult.imageUrl;
+
+            // 2. Upload to Storage
+            const imageRef = storageRef(storage, `communities/${currentUser.uid}/${name}-${Date.now()}.png`);
+            const snapshot = await uploadString(imageRef, imageDataUri, 'data_url');
+            const downloadURL = await getDownloadURL(snapshot.ref);
+
+            // 3. Save to Firestore
+            await addDoc(collection(db, 'communities'), {
+                name,
+                description,
+                imageUrl: downloadURL,
+                creatorId: currentUser.uid,
+                members: [currentUser.uid],
+                createdAt: serverTimestamp(),
+            });
+            
+            toast({ title: "Communauté créée", description: `La communauté "${name}" a été créée avec succès.` });
+            onOpenChange(false);
+            setName('');
+            setDescription('');
+
+        } catch (error) {
+            console.error("Error creating community:", error);
+            toast({ variant: "destructive", title: "Erreur", description: "La création de la communauté a échoué." });
+        } finally {
+            setIsCreating(false);
+        }
     };
 
     return (
@@ -727,7 +821,7 @@ const FicheApp = () => {
               <label htmlFor="description" className="text-right pt-2">Description</label>
               <div className="col-span-3 space-y-2">
                 <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} />
-                <Button onClick={handleGenerateDescription} disabled={isGenerating} variant="outline" size="sm" className="gap-2">
+                <Button onClick={handleGenerateDescription} disabled={isGenerating || isCreating} variant="outline" size="sm" className="gap-2">
                   <Sparkles className="w-4 h-4" />
                   {isGenerating ? 'Génération...' : 'Générer avec l\'IA'}
                 </Button>
@@ -735,7 +829,9 @@ const FicheApp = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button type="submit" onClick={handleCreate}>Créer la communauté</Button>
+            <Button type="submit" onClick={handleCreate} disabled={isCreating || isGenerating}>
+                {isCreating ? 'Création en cours...' : 'Créer la communauté'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -976,5 +1072,3 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
-
-    
