@@ -199,25 +199,19 @@ const AuthForm = () => {
 
 type ChatMessageItemProps = {
   message: ChatMessage;
-  index: number;
-  activeAudioIndex: number | null;
-  onPlayAudio: (index: number) => void;
+  isPlaying: boolean;
+  onPlayAudio: () => void;
   onCopy: (text: string) => void;
-  onLike: (index: number) => void;
-  audioRefs: React.MutableRefObject<Map<number, HTMLAudioElement | null>>;
-  setActiveAudioIndex: (index: number | null) => void;
+  onLike: () => void;
 };
 
 const ChatMessageDisplay = React.memo(
   ({
     message,
-    index,
-    activeAudioIndex,
+    isPlaying,
     onPlayAudio,
     onCopy,
     onLike,
-    audioRefs,
-    setActiveAudioIndex,
   }: ChatMessageItemProps) => {
     return (
       <div className={`flex items-end gap-2 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -299,27 +293,13 @@ const ChatMessageDisplay = React.memo(
                 </Accordion>
               <div className="mt-4 pt-3 border-t border-gray-200/50 dark:border-gray-700/50 flex items-center space-x-1">
                 {message.audioDataUri && (
-                  <>
-                     <audio
-                      ref={(el) => {
-                          if (el) {
-                              audioRefs.current.set(index, el);
-                              el.onended = () => {
-                                  if (activeAudioIndex === index) setActiveAudioIndex(null);
-                              };
-                          }
-                      }}
-                      src={message.audioDataUri}
-                      preload="none"
-                    />
-                    <button
-                      onClick={() => onPlayAudio(index)}
-                      className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
-                      aria-label={activeAudioIndex === index ? "Mettre en pause" : "Lire l'audio"}
-                    >
-                      {activeAudioIndex === index ? <Pause className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-                    </button>
-                  </>
+                  <button
+                    onClick={onPlayAudio}
+                    className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+                    aria-label={isPlaying ? "Mettre en pause" : "Lire l'audio"}
+                  >
+                    {isPlaying ? <Pause className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                  </button>
                 )}
                 <button
                   onClick={() => onCopy(message.content)}
@@ -329,7 +309,7 @@ const ChatMessageDisplay = React.memo(
                   <Copy className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => onLike(index)}
+                  onClick={onLike}
                   className={`p-2 rounded-full transition-colors ${
                     message.liked
                       ? 'text-primary hover:bg-primary/10'
@@ -367,11 +347,52 @@ const FicheApp = () => {
     { id: 1, name: 'Guide React.pdf', size: '2.4 MB', date: '2025-06-25', author: 'Marie Dubois' },
     { id: 2, name: 'Présentation IA.pptx', size: '5.1 MB', date: '2025-06-24', author: 'Jean Martin' }
   ]);
-  const [activeAudioIndex, setActiveAudioIndex] = useState<number | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const audioRefs = useRef<Map<number, HTMLAudioElement | null>>(new Map());
   const { toast } = useToast();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  const audioPlayer = useRef<HTMLAudioElement | null>(null);
+  const [audioStatus, setAudioStatus] = useState({ playingIndex: -1, isPaused: true });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+        audioPlayer.current = new Audio();
+        const player = audioPlayer.current;
+
+        const onPlay = () => setAudioStatus(s => ({ ...s, isPaused: false }));
+        const onPause = () => setAudioStatus(s => ({ ...s, isPaused: true }));
+        const onEnded = () => setAudioStatus({ playingIndex: -1, isPaused: true });
+
+        player.addEventListener('play', onPlay);
+        player.addEventListener('pause', onPause);
+        player.addEventListener('ended', onEnded);
+
+        return () => {
+            player.removeEventListener('play', onPlay);
+            player.removeEventListener('pause', onPause);
+            player.removeEventListener('ended', onEnded);
+            player.pause();
+        };
+    }
+  }, []);
+
+  const handlePlayAudio = (index: number, audioDataUri: string) => {
+      const player = audioPlayer.current;
+      if (!player) return;
+
+      if (audioStatus.playingIndex === index) {
+          if (player.paused) {
+              player.play().catch(console.error);
+          } else {
+              player.pause();
+          }
+      } else {
+          player.src = audioDataUri;
+          player.play().catch(console.error);
+          setAudioStatus({ playingIndex: index, isPaused: false });
+      }
+  };
+
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -458,36 +479,6 @@ const FicheApp = () => {
     toast({ title: 'Nouvelle discussion', description: 'La conversation a été réinitialisée.' });
   };
 
-  const handlePlayAudio = useCallback((index: number) => {
-    if (activeAudioIndex === index) {
-      const audio = audioRefs.current.get(index);
-      if (audio) {
-        audio.pause();
-      }
-      setActiveAudioIndex(null);
-      return;
-    }
-
-    if (activeAudioIndex !== null) {
-      const currentAudio = audioRefs.current.get(activeAudioIndex);
-      if (currentAudio) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
-      }
-    }
-
-    const newAudio = audioRefs.current.get(index);
-    if (newAudio) {
-       newAudio.play().catch(error => {
-          if (error.name !== 'AbortError') {
-             console.error("Error playing audio:", error);
-             setActiveAudioIndex(null);
-          }
-       });
-       setActiveAudioIndex(index);
-    }
-  }, [activeAudioIndex]);
-
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text).then(() => {
       toast({
@@ -522,13 +513,14 @@ const FicheApp = () => {
             <ChatMessageDisplay
               key={`${message.timestamp.toISOString()}-${index}`}
               message={message}
-              index={index}
-              activeAudioIndex={activeAudioIndex}
-              onPlayAudio={handlePlayAudio}
-              onCopy={handleCopy}
-              onLike={handleLike}
-              audioRefs={audioRefs}
-              setActiveAudioIndex={setActiveAudioIndex}
+              isPlaying={audioStatus.playingIndex === index && !audioStatus.isPaused}
+              onPlayAudio={() => {
+                if (message.audioDataUri) {
+                    handlePlayAudio(index, message.audioDataUri);
+                }
+              }}
+              onCopy={() => handleCopy(message.content)}
+              onLike={() => handleLike(index)}
             />
           ))
         )}
@@ -851,5 +843,7 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
+
+    
 
     
