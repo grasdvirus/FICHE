@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   MessageCircle, 
   Users, 
@@ -197,6 +197,159 @@ const AuthForm = () => {
   );
 };
 
+type ChatMessageItemProps = {
+  message: ChatMessage;
+  index: number;
+  activeAudioIndex: number | null;
+  onPlayAudio: (index: number) => void;
+  onCopy: (text: string) => void;
+  onLike: (index: number) => void;
+  audioRefs: React.MutableRefObject<Map<number, HTMLAudioElement | null>>;
+  setActiveAudioIndex: (index: number | null) => void;
+};
+
+const ChatMessageDisplay = React.memo(
+  ({
+    message,
+    index,
+    activeAudioIndex,
+    onPlayAudio,
+    onCopy,
+    onLike,
+    audioRefs,
+    setActiveAudioIndex,
+  }: ChatMessageItemProps) => {
+    return (
+      <div className={`flex items-end gap-2 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+         {message.type === 'ai' && <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0"><Brain className="w-5 h-5 text-primary"/></div>}
+        <div className={`max-w-2xl rounded-2xl shadow-sm ${
+          message.type === 'user' 
+            ? 'bg-gradient-to-r from-primary to-accent text-white rounded-br-none' 
+            : 'bg-white dark:bg-card border border-gray-200 dark:border-gray-700 text-foreground rounded-bl-none'
+        }`}>
+          {message.type === 'user' ? (
+              <Accordion type="single" collapsible className="w-full">
+                  <AccordionItem value="user-message" className="border-b-0">
+                      <AccordionTrigger className="p-4 font-semibold text-white hover:no-underline">
+                          <div className="flex items-center gap-2">
+                              <FileText className="w-4 h-4" />
+                              <span>Votre texte soumis</span>
+                          </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="px-4 pb-4 pt-0">
+                          <p className="whitespace-pre-wrap font-normal">{message.content}</p>
+                      </AccordionContent>
+                  </AccordionItem>
+              </Accordion>
+          ) : (
+            <div className="p-4">
+              <p className="mb-2 whitespace-pre-wrap">{message.content}</p>
+               <Accordion type="multiple" className="w-full mt-2 -mb-2">
+                  {message.suggestions && message.suggestions.length > 0 && (
+                    <AccordionItem value="suggestions" className="border-b-0">
+                      <AccordionTrigger className="py-2 font-semibold text-primary hover:no-underline">
+                        <div className="flex items-center">
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          Suggestions
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="space-y-2 pt-1 pb-2">
+                          {message.suggestions.map((suggestion, i) => (
+                            <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-foreground">
+                              {suggestion}
+                            </div>
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+                  {message.ideas && message.ideas.length > 0 && (
+                    <AccordionItem value="ideas" className="border-b-0">
+                      <AccordionTrigger className="py-2 font-semibold text-accent dark:text-yellow-400 hover:no-underline">
+                        <div className="flex items-center">💡 Idées créatives</div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="space-y-2 pt-1 pb-2">
+                          {message.ideas.map((idea, i) => (
+                            <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-foreground">
+                              {idea}
+                            </div>
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+                  {message.actions && message.actions.length > 0 && (
+                    <AccordionItem value="actions" className="border-b-0">
+                      <AccordionTrigger className="py-2 font-semibold text-foreground hover:no-underline">
+                        <div className="flex items-center">🎯 Actions possibles</div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="space-y-2 pt-1 pb-2">
+                          {message.actions.map((action, i) => (
+                            <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-foreground">
+                              {action}
+                            </div>
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+                </Accordion>
+              <div className="mt-4 pt-3 border-t border-gray-200/50 dark:border-gray-700/50 flex items-center space-x-1">
+                {message.audioDataUri && (
+                  <>
+                     <audio
+                      ref={(el) => {
+                          if (el) {
+                              audioRefs.current.set(index, el);
+                              el.onended = () => {
+                                  if (activeAudioIndex === index) setActiveAudioIndex(null);
+                              };
+                          }
+                      }}
+                      src={message.audioDataUri}
+                      preload="none"
+                    />
+                    <button
+                      onClick={() => onPlayAudio(index)}
+                      className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+                      aria-label={activeAudioIndex === index ? "Mettre en pause" : "Lire l'audio"}
+                    >
+                      {activeAudioIndex === index ? <Pause className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => onCopy(message.content)}
+                  className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+                  aria-label="Copier le texte"
+                >
+                  <Copy className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => onLike(index)}
+                  className={`p-2 rounded-full transition-colors ${
+                    message.liked
+                      ? 'text-primary hover:bg-primary/10'
+                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                  aria-label="Aimer"
+                >
+                  <ThumbsUp className={`w-5 h-5 ${message.liked ? 'fill-primary' : ''}`} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+          {message.type === 'user' && <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center shrink-0"><User className="w-5 h-5 text-white"/></div>}
+      </div>
+    );
+  }
+);
+ChatMessageDisplay.displayName = 'ChatMessageDisplay';
+
 
 const FicheApp = () => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
@@ -305,7 +458,7 @@ const FicheApp = () => {
     toast({ title: 'Nouvelle discussion', description: 'La conversation a été réinitialisée.' });
   };
 
-  const handlePlayAudio = (index: number) => {
+  const handlePlayAudio = useCallback((index: number) => {
     if (activeAudioIndex === index) {
       const audio = audioRefs.current.get(index);
       if (audio) {
@@ -333,27 +486,27 @@ const FicheApp = () => {
        });
        setActiveAudioIndex(index);
     }
-  };
+  }, [activeAudioIndex]);
 
-  const handleCopy = (text: string) => {
+  const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text).then(() => {
       toast({
         title: 'Copié',
         description: 'Le texte a été copié dans le presse-papiers.',
       });
     });
-  };
+  }, [toast]);
 
-  const handleLike = (index: number) => {
-    setChatHistory(prev => {
-      const newHistory = [...prev];
-      const message = newHistory[index];
-      if (message.type === 'ai') {
-        message.liked = !message.liked;
-      }
-      return newHistory;
-    });
-  };
+  const handleLike = useCallback((index: number) => {
+    setChatHistory(prev =>
+      prev.map((message, i) => {
+        if (i === index && message.type === 'ai') {
+          return { ...message, liked: !message.liked };
+        }
+        return message;
+      })
+    );
+  }, []);
 
   const ChatInterface = () => (
     <div className="flex-1 flex flex-col h-full bg-gray-50/50 dark:bg-gray-900/50">
@@ -366,135 +519,17 @@ const FicheApp = () => {
           </div>
         ) : (
           chatHistory.map((message, index) => (
-            <div key={`${message.timestamp.toISOString()}-${index}`} className={`flex items-end gap-2 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-               {message.type === 'ai' && <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0"><Brain className="w-5 h-5 text-primary"/></div>}
-              <div className={`max-w-2xl rounded-2xl shadow-sm ${
-                message.type === 'user' 
-                  ? 'bg-gradient-to-r from-primary to-accent text-white rounded-br-none' 
-                  : 'bg-white dark:bg-card border border-gray-200 dark:border-gray-700 text-foreground rounded-bl-none'
-              }`}>
-                {message.type === 'user' ? (
-                    <Accordion type="single" collapsible className="w-full">
-                        <AccordionItem value="user-message" className="border-b-0">
-                            <AccordionTrigger className="p-4 font-semibold text-white hover:no-underline">
-                                <div className="flex items-center gap-2">
-                                    <FileText className="w-4 h-4" />
-                                    <span>Votre texte soumis</span>
-                                </div>
-                            </AccordionTrigger>
-                            <AccordionContent className="px-4 pb-4 pt-0">
-                                <p className="whitespace-pre-wrap font-normal">{message.content}</p>
-                            </AccordionContent>
-                        </AccordionItem>
-                    </Accordion>
-                ) : (
-                  <div className="p-4">
-                    <p className="mb-2 whitespace-pre-wrap">{message.content}</p>
-                     <Accordion type="multiple" className="w-full mt-2 -mb-2">
-                        {message.suggestions && message.suggestions.length > 0 && (
-                          <AccordionItem value="suggestions" className="border-b-0">
-                            <AccordionTrigger className="py-2 font-semibold text-primary hover:no-underline">
-                              <div className="flex items-center">
-                                <Sparkles className="w-4 h-4 mr-2" />
-                                Suggestions
-                              </div>
-                            </AccordionTrigger>
-                            <AccordionContent>
-                              <div className="space-y-2 pt-1 pb-2">
-                                {message.suggestions.map((suggestion, i) => (
-                                  <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-foreground">
-                                    {suggestion}
-                                  </div>
-                                ))}
-                              </div>
-                            </AccordionContent>
-                          </AccordionItem>
-                        )}
-                        {message.ideas && message.ideas.length > 0 && (
-                          <AccordionItem value="ideas" className="border-b-0">
-                            <AccordionTrigger className="py-2 font-semibold text-accent dark:text-yellow-400 hover:no-underline">
-                              <div className="flex items-center">💡 Idées créatives</div>
-                            </AccordionTrigger>
-                            <AccordionContent>
-                              <div className="space-y-2 pt-1 pb-2">
-                                {message.ideas.map((idea, i) => (
-                                  <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-foreground">
-                                    {idea}
-                                  </div>
-                                ))}
-                              </div>
-                            </AccordionContent>
-                          </AccordionItem>
-                        )}
-                        {message.actions && message.actions.length > 0 && (
-                          <AccordionItem value="actions" className="border-b-0">
-                            <AccordionTrigger className="py-2 font-semibold text-foreground hover:no-underline">
-                              <div className="flex items-center">🎯 Actions possibles</div>
-                            </AccordionTrigger>
-                            <AccordionContent>
-                              <div className="space-y-2 pt-1 pb-2">
-                                {message.actions.map((action, i) => (
-                                  <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-foreground">
-                                    {action}
-                                  </div>
-                                ))}
-                              </div>
-                            </AccordionContent>
-                          </AccordionItem>
-                        )}
-                      </Accordion>
-                    <div className="mt-4 pt-3 border-t border-gray-200/50 dark:border-gray-700/50 flex items-center space-x-1">
-                      {message.audioDataUri && (
-                        <>
-                           <audio
-                            ref={(el) => {
-                                if (el) {
-                                    audioRefs.current.set(index, el);
-                                    el.onended = () => {
-                                        if (activeAudioIndex === index) setActiveAudioIndex(null);
-                                    };
-                                    el.onpause = () => {
-                                        if (el.seeking) return;
-                                        if (activeAudioIndex === index) setActiveAudioIndex(null);
-                                    };
-                                }
-                            }}
-                            src={message.audioDataUri}
-                            preload="none"
-                          />
-                          <button
-                            onClick={() => handlePlayAudio(index)}
-                            className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
-                            aria-label={activeAudioIndex === index ? "Mettre en pause" : "Lire l'audio"}
-                          >
-                            {activeAudioIndex === index ? <Pause className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-                          </button>
-                        </>
-                      )}
-                      <button
-                        onClick={() => handleCopy(message.content)}
-                        className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
-                        aria-label="Copier le texte"
-                      >
-                        <Copy className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => handleLike(index)}
-                        className={`p-2 rounded-full transition-colors ${
-                          message.liked
-                            ? 'text-primary hover:bg-primary/10'
-                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                        }`}
-                        aria-label="Aimer"
-                      >
-                        <ThumbsUp className={`w-5 h-5 ${message.liked ? 'fill-primary' : ''}`} />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-                {message.type === 'user' && <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center shrink-0"><User className="w-5 h-5 text-white"/></div>}
-            </div>
+            <ChatMessageDisplay
+              key={`${message.timestamp.toISOString()}-${index}`}
+              message={message}
+              index={index}
+              activeAudioIndex={activeAudioIndex}
+              onPlayAudio={handlePlayAudio}
+              onCopy={handleCopy}
+              onLike={handleLike}
+              audioRefs={audioRefs}
+              setActiveAudioIndex={setActiveAudioIndex}
+            />
           ))
         )}
         {isLoading && (
