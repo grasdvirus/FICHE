@@ -362,14 +362,28 @@ const FicheApp = () => {
           chatHistory.map((message, index) => (
             <div key={`${message.timestamp.toISOString()}-${index}`} className={`flex items-end gap-2 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
                {message.type === 'ai' && <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0"><Brain className="w-5 h-5 text-primary"/></div>}
-              <div className={`max-w-2xl p-4 rounded-2xl shadow-sm ${
+              <div className={`max-w-2xl rounded-2xl shadow-sm ${
                 message.type === 'user' 
                   ? 'bg-gradient-to-r from-primary to-accent text-white rounded-br-none' 
                   : 'bg-white dark:bg-card border border-gray-200 dark:border-gray-700 text-foreground rounded-bl-none'
               }`}>
-                <p className="mb-2 whitespace-pre-wrap">{message.content}</p>
-                {message.type === 'ai' && (
-                  <>
+                {message.type === 'user' ? (
+                    <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="user-message" className="border-b-0">
+                            <AccordionTrigger className="p-4 font-semibold text-white hover:no-underline">
+                                <div className="flex items-center gap-2">
+                                    <FileText className="w-4 h-4" />
+                                    <span>Votre texte soumis</span>
+                                </div>
+                            </AccordionTrigger>
+                            <AccordionContent className="px-4 pb-4 pt-0">
+                                <p className="whitespace-pre-wrap font-normal">{message.content}</p>
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
+                ) : (
+                  <div className="p-4">
+                    <p className="mb-2 whitespace-pre-wrap">{message.content}</p>
                      <Accordion type="multiple" className="w-full mt-2 -mb-2">
                         {message.suggestions && message.suggestions.length > 0 && (
                           <AccordionItem value="suggestions" className="border-b-0">
@@ -470,7 +484,7 @@ const FicheApp = () => {
                         <ThumbsUp className={`w-5 h-5 ${message.liked ? 'fill-primary' : ''}`} />
                       </button>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
                 {message.type === 'user' && <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center shrink-0"><User className="w-5 h-5 text-white"/></div>}
