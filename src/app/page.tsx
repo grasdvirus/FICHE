@@ -338,10 +338,26 @@ const FicheApp = () => {
         subscribed: doc.data().members?.includes(currentUser.uid)
       })) as Community[];
       setCommunities(communitiesData);
+    },
+    (error) => {
+      console.error("Erreur de lecture des communautés:", error);
+      if (error.code === 'permission-denied') {
+        toast({
+          variant: "destructive",
+          title: "Accès refusé",
+          description: "Impossible de charger les communautés. Vérifiez les règles de sécurité de Firestore pour autoriser la lecture.",
+        });
+      } else {
+          toast({
+          variant: "destructive",
+          title: "Erreur de base de données",
+          description: "Impossible de charger les communautés.",
+        });
+      }
     });
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, toast]);
 
   useEffect(() => {
     if (!currentUser) {
@@ -356,10 +372,26 @@ const FicheApp = () => {
         ...doc.data(),
       })) as FileInfo[];
       setFiles(filesData);
+    },
+    (error) => {
+      console.error("Erreur de lecture des fichiers:", error);
+      if (error.code === 'permission-denied') {
+        toast({
+          variant: "destructive",
+          title: "Accès refusé",
+          description: "Impossible de charger les fichiers. Vérifiez les règles de sécurité de Firestore.",
+        });
+      } else {
+          toast({
+          variant: "destructive",
+          title: "Erreur de base de données",
+          description: "Impossible de charger les fichiers.",
+        });
+      }
     });
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser, toast]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
