@@ -69,64 +69,13 @@ type FileInfo = {
 
 type ActiveTab = 'chat' | 'communities' | 'files' | 'messages' | 'settings';
 
-const FicheApp = () => {
-  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
-  const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
-  const [isAuthenticating, setIsAuthenticating] = useState(true);
+const AuthForm = () => {
   const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [userText, setUserText] = useState('');
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [communities, setCommunities] = useState<Community[]>([
-    { id: 1, name: 'Développeurs', members: 234, description: 'Communauté de développeurs passionnés' },
-    { id: 2, name: 'Designers', members: 156, description: 'Partage de créations et conseils design' },
-    { id: 3, name: 'Étudiants', members: 89, description: 'Entraide et ressources académiques' }
-  ]);
-  const [files, setFiles] = useState<FileInfo[]>([
-    { id: 1, name: 'Guide React.pdf', size: '2.4 MB', date: '2025-06-25', author: 'Marie Dubois' },
-    { id: 2, name: 'Présentation IA.pptx', size: '5.1 MB', date: '2025-06-24', author: 'Jean Martin' }
-  ]);
-  const [activeAudioIndex, setActiveAudioIndex] = useState<number | null>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-  const audioRefs = useRef<Map<number, HTMLAudioElement | null>>(new Map());
   const { toast } = useToast();
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
-      setIsAuthenticating(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setTheme('dark');
-    }
-  }, []);
-
-  useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [theme]);
-
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
-  }, [chatHistory]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -165,104 +114,8 @@ const FicheApp = () => {
       setIsLoading(false);
     }
   };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      toast({ title: 'Déconnexion', description: 'Vous avez été déconnecté.' });
-    } catch (error: any) {
-      toast({ variant: "destructive", title: 'Erreur', description: error.message });
-    }
-  };
-
-
-  const handleTextSubmit = async () => {
-    if (!userText.trim()) return;
-    
-    setIsLoading(true);
-    const currentText = userText;
-    const userMessage: ChatMessage = { type: 'user', content: currentText, timestamp: new Date() };
-    setChatHistory(prev => [...prev, userMessage]);
-    setUserText('');
-
-    try {
-      const aiData = await analyzeText({ text: currentText });
-      const audioResult = await textToSpeech({ text: aiData.explanation });
-      
-      const aiMessage: ChatMessage = {
-        type: 'ai',
-        content: aiData.explanation,
-        suggestions: aiData.suggestions,
-        ideas: aiData.ideas,
-        actions: aiData.actions,
-        timestamp: new Date(),
-        audioDataUri: audioResult.media,
-        liked: false,
-      };
-      
-      setChatHistory(prev => [...prev, aiMessage]);
-    } catch (error) {
-      console.error('Erreur IA:', error);
-      const errorMessage: ChatMessage = {
-        type: 'ai',
-        content: 'Désolé, je rencontre des difficultés techniques. Veuillez réessayer.',
-        timestamp: new Date()
-      };
-      setChatHistory(prev => [...prev, errorMessage]);
-    }
-    
-    setIsLoading(false);
-  };
-
-  const handlePlayAudio = (index: number) => {
-    const clickedAudio = audioRefs.current.get(index);
-    if (!clickedAudio) return;
   
-    if (activeAudioIndex !== null && activeAudioIndex !== index) {
-      const activeAudio = audioRefs.current.get(activeAudioIndex);
-      if (activeAudio) {
-        activeAudio.pause();
-      }
-    }
-  
-    if (clickedAudio.paused) {
-      clickedAudio.play().then(() => {
-        setActiveAudioIndex(index);
-      }).catch(error => {
-        if (error.name !== 'AbortError') {
-          console.error("Error playing audio:", error);
-        }
-        if (activeAudioIndex === index) {
-          setActiveAudioIndex(null);
-        }
-      });
-    } else {
-      clickedAudio.pause();
-      setActiveAudioIndex(null);
-    }
-  };
-
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      toast({
-        title: 'Copié',
-        description: 'Le texte a été copié dans le presse-papiers.',
-      });
-    });
-  };
-
-  const handleLike = (index: number) => {
-    setChatHistory(prev => {
-      const newHistory = [...prev];
-      const message = newHistory[index];
-      if (message.type === 'ai') {
-        message.liked = !message.liked;
-      }
-      return newHistory;
-    });
-  };
-
-  const AuthForm = () => (
+  return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-background to-gray-50 dark:from-blue-900/10 dark:to-gray-900/10 flex items-center justify-center p-4">
       <div className="bg-white dark:bg-card rounded-2xl shadow-2xl p-8 w-full max-w-md border border-gray-100 dark:border-gray-800">
         <div className="text-center mb-8">
@@ -340,6 +193,155 @@ const FicheApp = () => {
       </div>
     </div>
   );
+};
+
+
+const FicheApp = () => {
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
+  const [isAuthenticating, setIsAuthenticating] = useState(true);
+  const [userText, setUserText] = useState('');
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [communities, setCommunities] = useState<Community[]>([
+    { id: 1, name: 'Développeurs', members: 234, description: 'Communauté de développeurs passionnés' },
+    { id: 2, name: 'Designers', members: 156, description: 'Partage de créations et conseils design' },
+    { id: 3, name: 'Étudiants', members: 89, description: 'Entraide et ressources académiques' }
+  ]);
+  const [files, setFiles] = useState<FileInfo[]>([
+    { id: 1, name: 'Guide React.pdf', size: '2.4 MB', date: '2025-06-25', author: 'Marie Dubois' },
+    { id: 2, name: 'Présentation IA.pptx', size: '5.1 MB', date: '2025-06-24', author: 'Jean Martin' }
+  ]);
+  const [activeAudioIndex, setActiveAudioIndex] = useState<number | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const audioRefs = useRef<Map<number, HTMLAudioElement | null>>(new Map());
+  const { toast } = useToast();
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setIsAuthenticating(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
+    if (savedTheme) {
+      setTheme(savedTheme);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      setTheme('dark');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [chatHistory]);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      toast({ title: 'Déconnexion', description: 'Vous avez été déconnecté.' });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: 'Erreur', description: error.message });
+    }
+  };
+
+  const handleTextSubmit = async () => {
+    if (!userText.trim()) return;
+    
+    setIsLoading(true);
+    const currentText = userText;
+    const userMessage: ChatMessage = { type: 'user', content: currentText, timestamp: new Date() };
+    setChatHistory(prev => [...prev, userMessage]);
+    setUserText('');
+
+    try {
+      const aiData = await analyzeText({ text: currentText });
+      const audioResult = await textToSpeech({ text: aiData.explanation });
+      
+      const aiMessage: ChatMessage = {
+        type: 'ai',
+        content: aiData.explanation,
+        suggestions: aiData.suggestions,
+        ideas: aiData.ideas,
+        actions: aiData.actions,
+        timestamp: new Date(),
+        audioDataUri: audioResult.media,
+        liked: false,
+      };
+      
+      setChatHistory(prev => [...prev, aiMessage]);
+    } catch (error) {
+      console.error('Erreur IA:', error);
+      const errorMessage: ChatMessage = {
+        type: 'ai',
+        content: 'Désolé, je rencontre des difficultés techniques. Veuillez réessayer.',
+        timestamp: new Date()
+      };
+      setChatHistory(prev => [...prev, errorMessage]);
+    }
+    
+    setIsLoading(false);
+  };
+
+  const handlePlayAudio = (index: number) => {
+    const clickedAudio = audioRefs.current.get(index);
+    if (!clickedAudio) return;
+  
+    // Pause other playing audio
+    audioRefs.current.forEach((audio, i) => {
+      if (audio && i !== index && !audio.paused) {
+        audio.pause();
+      }
+    });
+  
+    if (clickedAudio.paused) {
+      clickedAudio.play().catch(error => {
+        if (error.name !== 'AbortError') {
+          console.error("Error playing audio:", error);
+          if (activeAudioIndex === index) setActiveAudioIndex(null);
+        }
+      });
+      setActiveAudioIndex(index);
+    } else {
+      clickedAudio.pause();
+      setActiveAudioIndex(null);
+    }
+  };
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      toast({
+        title: 'Copié',
+        description: 'Le texte a été copié dans le presse-papiers.',
+      });
+    });
+  };
+
+  const handleLike = (index: number) => {
+    setChatHistory(prev => {
+      const newHistory = [...prev];
+      const message = newHistory[index];
+      if (message.type === 'ai') {
+        message.liked = !message.liked;
+      }
+      return newHistory;
+    });
+  };
 
   const ChatInterface = () => (
     <div className="flex-1 flex flex-col h-full bg-gray-50/50 dark:bg-gray-900/50">
@@ -407,13 +409,18 @@ const FicheApp = () => {
                       {message.audioDataUri && (
                         <>
                           <audio
-                            ref={(el) => audioRefs.current.set(index, el)}
+                            ref={(el) => {
+                                if (el) {
+                                    audioRefs.current.set(index, el);
+                                    el.onended = () => setActiveAudioIndex(null);
+                                    el.onpause = () => {
+                                      if (audioRefs.current.get(index)?.seeking) return;
+                                      if(activeAudioIndex === index) setActiveAudioIndex(null);
+                                    };
+                                }
+                            }}
                             src={message.audioDataUri}
                             preload="none"
-                            onEnded={() => setActiveAudioIndex(null)}
-                            onPause={() => {
-                              if (activeAudioIndex === index) setActiveAudioIndex(null)
-                            }}
                           />
                           <button
                             onClick={() => handlePlayAudio(index)}
@@ -761,3 +768,5 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
+
+    
