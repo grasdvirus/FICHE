@@ -18,22 +18,21 @@ import {
   Brain,
   Upload,
   Download,
-  Eye,
-  Heart,
   Share2,
-  Filter,
   Volume2,
   Pause,
   Copy,
   ThumbsUp,
   RotateCw,
   Check,
-  Edit
+  Edit,
+  Info
 } from 'lucide-react';
 import { analyzeText } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
 import { generateCommunityImage } from '@/ai/flows/generate-community-image';
+import { summarizeDocument } from '@/ai/flows/summarize-document';
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { auth, db, storage } from '@/lib/firebase';
@@ -46,7 +45,7 @@ import {
   User as FirebaseUser
 } from "firebase/auth";
 import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
-import { ref as storageRef, uploadString, getDownloadURL } from "firebase/storage";
+import { ref as storageRef, uploadBytes, getDownloadURL, uploadString } from "firebase/storage";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -78,11 +77,15 @@ type Community = {
 };
 
 type FileInfo = {
-  id: number;
+  id: string;
   name: string;
-  size: string;
-  date: string;
+  size: number;
+  date: { toDate: () => Date };
   author: string;
+  url: string;
+  creatorId: string;
+  summary: string;
+  type: string;
 };
 
 type ActiveTab = 'chat' | 'communities' | 'files' | 'messages' | 'settings';
@@ -310,10 +313,10 @@ const FicheApp = () => {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [communities, setCommunities] = useState<Community[]>([]);
-  const [files, setFiles] = useState<FileInfo[]>([
-    { id: 1, name: 'Guide React.pdf', size: '2.4 MB', date: '2025-06-25', author: 'Marie Dubois' },
-    { id: 2, name: 'Présentation IA.pptx', size: '5.1 MB', date: '2025-06-24', author: 'Jean Martin' }
-  ]);
+  const [files, setFiles] = useState<FileInfo[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [viewingSummary, setViewingSummary] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -335,6 +338,24 @@ const FicheApp = () => {
         subscribed: doc.data().members?.includes(currentUser.uid)
       })) as Community[];
       setCommunities(communitiesData);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setFiles([]);
+      return;
+    }
+
+    const q = query(collection(db, "files"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const filesData = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as FileInfo[];
+      setFiles(filesData);
     });
 
     return () => unsubscribe();
@@ -512,6 +533,70 @@ const FicheApp = () => {
       toast({ variant: 'destructive', title: 'Erreur', description: "L'opération a échoué. Veuillez réessayer." });
     }
   };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!event.target.files || event.target.files.length === 0 || !currentUser) return;
+
+    const file = event.target.files[0];
+    setIsUploading(true);
+    toast({ title: 'Importation en cours...', description: `Le fichier "${file.name}" est en cours de traitement.` });
+
+    try {
+        const reader = new FileReader();
+        const dataUriPromise = new Promise<string>((resolve, reject) => {
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = (error) => reject(error);
+            reader.readAsDataURL(file);
+        });
+        const documentDataUri = await dataUriPromise;
+
+        let summary = "Le résumé n'est pas disponible pour ce type de fichier.";
+        if (file.type.startsWith('application/pdf') || file.type.startsWith('text/')) {
+             try {
+                const summaryResult = await summarizeDocument({ documentDataUri });
+                summary = summaryResult.summary;
+             } catch (aiError) {
+                console.error("AI summarization failed:", aiError);
+                summary = "La génération du résumé par l'IA a échoué.";
+             }
+        }
+
+        const fileStorageRef = storageRef(storage, `files/${currentUser.uid}/${Date.now()}-${file.name}`);
+        await uploadBytes(fileStorageRef, file);
+        const downloadURL = await getDownloadURL(fileStorageRef);
+
+        await addDoc(collection(db, 'files'), {
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            url: downloadURL,
+            summary: summary,
+            author: currentUser.displayName || 'Utilisateur inconnu',
+            creatorId: currentUser.uid,
+            createdAt: serverTimestamp(),
+        });
+        
+        toast({ title: 'Fichier importé', description: `"${file.name}" a été importé et analysé avec succès.` });
+
+    } catch (error) {
+        console.error("File upload failed:", error);
+        toast({ variant: "destructive", title: "Erreur d'importation", description: "Une erreur est survenue." });
+    } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
+    }
+  };
+
+  function formatBytes(bytes: number, decimals = 2) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  }
 
   const ChatInterface = () => (
     <div className="flex flex-col h-full bg-muted/40 dark:bg-gray-800/20">
@@ -716,16 +801,13 @@ const FicheApp = () => {
 
         setIsCreating(true);
         try {
-            // 1. Generate Image
             const imageResult = await generateCommunityImage({ prompt: name });
             const imageDataUri = imageResult.imageUrl;
 
-            // 2. Upload to Storage
             const imageRef = storageRef(storage, `communities/${currentUser.uid}/${name.replace(/\s/g, '_')}-${Date.now()}.png`);
             await uploadString(imageRef, imageDataUri, 'data_url');
             const downloadURL = await getDownloadURL(imageRef);
 
-            // 3. Save to Firestore
             await addDoc(collection(db, 'communities'), {
                 name,
                 description,
@@ -786,32 +868,78 @@ const FicheApp = () => {
   const FilesTab = () => (
     <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20">
       <header className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold">Fichiers</h2>
-          <Button>
-              <Upload size={16} className="mr-2"/>
-              Importer
-          </Button>
+        <h2 className="text-2xl font-bold">Fichiers</h2>
+        <Button onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+          <Upload size={16} className="mr-2" />
+          {isUploading ? 'Importation...' : 'Importer'}
+        </Button>
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileUpload}
+          className="hidden"
+          accept=".pdf,.doc,.docx,.txt"
+        />
       </header>
-      <div className="space-y-4">
-        {files.map(file => (
-          <div key={file.id} className="bg-background dark:bg-gray-800 rounded-lg p-4 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                  <div className="p-3 bg-primary/10 rounded-lg">
-                      <FileText className="text-primary"/>
-                  </div>
-                  <div>
-                      <p className="font-semibold">{file.name}</p>
-                      <p className="text-sm text-muted-foreground">{file.size} • {file.date} • {file.author}</p>
-                  </div>
-              </div>
-              <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon"><Download size={18}/></Button>
-                  <Button variant="ghost" size="icon"><Share2 size={18}/></Button>
-                  <Button variant="ghost" size="icon"><Eye size={18}/></Button>
-              </div>
+      {files.length === 0 && !isUploading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center text-muted-foreground">
+            <div className="inline-block p-4 bg-background rounded-full">
+              <FileText size={32} />
+            </div>
+            <h3 className="mt-4 text-lg font-semibold">Aucun fichier</h3>
+            <p className="text-sm">Importez votre premier document pour commencer.</p>
           </div>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <div className="space-y-4 overflow-y-auto">
+          {files.map(file => (
+            <div key={file.id} className="bg-background dark:bg-gray-800 rounded-lg p-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="p-3 bg-primary/10 rounded-lg flex-shrink-0">
+                  <FileText className="text-primary" />
+                </div>
+                <div className="truncate">
+                  <p className="font-semibold truncate">{file.name}</p>
+                  <p className="text-sm text-muted-foreground truncate">
+                    {formatBytes(file.size)} • {file.date?.toDate().toLocaleDateString('fr-FR')} • {file.author}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <a href={file.url} target="_blank" rel="noopener noreferrer">
+                  <Button variant="ghost" size="icon"><Download size={18} /></Button>
+                </a>
+                <Button variant="ghost" size="icon" onClick={() => {
+                  navigator.clipboard.writeText(file.url);
+                  toast({ title: 'Lien copié !' });
+                }}>
+                  <Share2 size={18} />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => setViewingSummary(file.summary)}>
+                  <Info size={18} />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+       <Dialog open={!!viewingSummary} onOpenChange={(open) => !open && setViewingSummary(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Résumé du document</DialogTitle>
+            <DialogDescription>
+              Voici un résumé du document généré par l'IA.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 max-h-96 overflow-y-auto">
+            <p className="text-sm">{viewingSummary}</p>
+          </div>
+           <DialogFooter>
+              <Button onClick={() => setViewingSummary(null)}>Fermer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 
@@ -994,5 +1122,3 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
-
-    
