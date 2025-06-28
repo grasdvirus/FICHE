@@ -53,6 +53,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from '@/components/ui/separator';
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 type ChatMessage = {
   type: 'user' | 'ai';
@@ -285,7 +286,7 @@ const ChatMessageDisplay = React.memo(
                       {isPlaying ? <Pause size={16}/> : <Volume2 size={16}/>}
                   </Button>
                 )}
-                <Button variant="ghost" size="icon" onClick={onCopy} className="h-8 w-8"> <Copy size={16}/> </Button>
+                <Button variant="ghost" size="icon" onClick={() => onCopy(message.content)} className="h-8 w-8"> <Copy size={16}/> </Button>
                 <Button variant="ghost" size="icon" onClick={onLike} className={`h-8 w-8 ${message.liked ? 'text-red-500' : ''}`}>
                    <ThumbsUp size={16}/>
                 </Button>
