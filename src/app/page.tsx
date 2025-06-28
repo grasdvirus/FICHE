@@ -721,7 +721,7 @@ const FicheApp = () => {
             const imageDataUri = imageResult.imageUrl;
 
             // 2. Upload to Storage
-            const imageRef = storageRef(storage, `communities/${currentUser.uid}/${name}-${Date.now()}.png`);
+            const imageRef = storageRef(storage, `communities/${currentUser.uid}/${name.replace(/\s/g, '_')}-${Date.now()}.png`);
             await uploadString(imageRef, imageDataUri, 'data_url');
             const downloadURL = await getDownloadURL(imageRef);
 
@@ -921,7 +921,10 @@ const FicheApp = () => {
   if (isAuthenticating) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <p>Chargement...</p>
+        <div className="text-center">
+            <h1 className="text-5xl font-bold font-headline text-primary">FICHE</h1>
+            <p className="mt-2 text-lg text-gray-500">Chargement...</p>
+        </div>
       </div>
     );
   }
