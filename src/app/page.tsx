@@ -40,6 +40,7 @@ import {
   User as FirebaseUser
 } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 type ChatMessage = {
   type: 'user' | 'ai';
@@ -299,27 +300,32 @@ const FicheApp = () => {
   };
 
   const handlePlayAudio = (index: number) => {
-    const clickedAudio = audioRefs.current.get(index);
-    if (!clickedAudio) return;
-  
-    // Pause other playing audio
-    audioRefs.current.forEach((audio, i) => {
-      if (audio && i !== index && !audio.paused) {
+    if (activeAudioIndex === index) {
+      const audio = audioRefs.current.get(index);
+      if (audio) {
         audio.pause();
       }
-    });
-  
-    if (clickedAudio.paused) {
-      clickedAudio.play().catch(error => {
-        if (error.name !== 'AbortError') {
-          console.error("Error playing audio:", error);
-          if (activeAudioIndex === index) setActiveAudioIndex(null);
-        }
-      });
-      setActiveAudioIndex(index);
-    } else {
-      clickedAudio.pause();
       setActiveAudioIndex(null);
+      return;
+    }
+
+    if (activeAudioIndex !== null) {
+      const currentAudio = audioRefs.current.get(activeAudioIndex);
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+      }
+    }
+
+    const newAudio = audioRefs.current.get(index);
+    if (newAudio) {
+       newAudio.play().catch(error => {
+          if (error.name !== 'AbortError') {
+             console.error("Error playing audio:", error);
+             setActiveAudioIndex(null);
+          }
+       });
+       setActiveAudioIndex(index);
     }
   };
 
@@ -364,58 +370,72 @@ const FicheApp = () => {
                 <p className="mb-2 whitespace-pre-wrap">{message.content}</p>
                 {message.type === 'ai' && (
                   <>
-                    <div className="mt-4 space-y-3">
-                      {message.suggestions && message.suggestions.length > 0 && (
-                        <div>
-                          <h4 className="font-semibold text-primary mb-2 flex items-center">
-                            <Sparkles className="w-4 h-4 mr-2" />
-                            Suggestions
-                          </h4>
-                          <div className="space-y-2">
-                            {message.suggestions.map((suggestion, i) => (
-                              <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-black dark:text-white">
-                                {suggestion}
+                     <Accordion type="multiple" className="w-full mt-2 -mb-2">
+                        {message.suggestions && message.suggestions.length > 0 && (
+                          <AccordionItem value="suggestions" className="border-b-0">
+                            <AccordionTrigger className="py-2 font-semibold text-primary hover:no-underline">
+                              <div className="flex items-center">
+                                <Sparkles className="w-4 h-4 mr-2" />
+                                Suggestions
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {message.ideas && message.ideas.length > 0 && (
-                        <div className="pt-2">
-                           <h4 className="font-semibold text-accent dark:text-yellow-400 mb-2 flex items-center">💡 Idées créatives</h4>
-                           <div className="space-y-2">
-                            {message.ideas.map((idea, i) => (
-                              <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-black dark:text-white">
-                                {idea}
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              <div className="space-y-2 pt-1 pb-2">
+                                {message.suggestions.map((suggestion, i) => (
+                                  <div key={i} className="bg-primary/10 p-3 rounded-lg text-sm text-foreground">
+                                    {suggestion}
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {message.actions && message.actions.length > 0 && (
-                        <div className="pt-2">
-                           <h4 className="font-semibold text-foreground mb-2 flex items-center">🎯 Actions possibles</h4>
-                           <div className="space-y-2">
-                            {message.actions.map((action, i) => (
-                              <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-black dark:text-white">
-                                {action}
+                            </AccordionContent>
+                          </AccordionItem>
+                        )}
+                        {message.ideas && message.ideas.length > 0 && (
+                          <AccordionItem value="ideas" className="border-b-0">
+                            <AccordionTrigger className="py-2 font-semibold text-accent dark:text-yellow-400 hover:no-underline">
+                              <div className="flex items-center">💡 Idées créatives</div>
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              <div className="space-y-2 pt-1 pb-2">
+                                {message.ideas.map((idea, i) => (
+                                  <div key={i} className="bg-accent/10 p-3 rounded-lg text-sm text-foreground">
+                                    {idea}
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        )}
+                        {message.actions && message.actions.length > 0 && (
+                          <AccordionItem value="actions" className="border-b-0">
+                            <AccordionTrigger className="py-2 font-semibold text-foreground hover:no-underline">
+                              <div className="flex items-center">🎯 Actions possibles</div>
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              <div className="space-y-2 pt-1 pb-2">
+                                {message.actions.map((action, i) => (
+                                  <div key={i} className="bg-secondary p-3 rounded-lg text-sm text-foreground">
+                                    {action}
+                                  </div>
+                                ))}
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        )}
+                      </Accordion>
                     <div className="mt-4 pt-3 border-t border-gray-200/50 dark:border-gray-700/50 flex items-center space-x-1">
                       {message.audioDataUri && (
                         <>
-                          <audio
+                           <audio
                             ref={(el) => {
                                 if (el) {
                                     audioRefs.current.set(index, el);
-                                    el.onended = () => setActiveAudioIndex(null);
+                                    el.onended = () => {
+                                        if (activeAudioIndex === index) setActiveAudioIndex(null);
+                                    };
                                     el.onpause = () => {
-                                      if (audioRefs.current.get(index)?.seeking) return;
-                                      if(activeAudioIndex === index) setActiveAudioIndex(null);
+                                        if (el.seeking) return;
+                                        if (activeAudioIndex === index) setActiveAudioIndex(null);
                                     };
                                 }
                             }}
