@@ -44,7 +44,7 @@ import {
   updateProfile,
   User as FirebaseUser
 } from "firebase/auth";
-import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
+import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, arrayUnion, arrayRemove, where } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL, uploadString } from "firebase/storage";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -71,7 +71,7 @@ type Community = {
   members: string[];
   description: string;
   imageUrl: string;
-  creatorId: string;
+  ownerId: string;
   dataAiHint: string;
   subscribed: boolean;
 };
@@ -83,7 +83,7 @@ type FileInfo = {
   date: { toDate: () => Date };
   author: string;
   url: string;
-  creatorId: string;
+  ownerId: string;
   summary: string;
   type: string;
 };
@@ -361,37 +361,37 @@ const FicheApp = () => {
 
   useEffect(() => {
     if (!currentUser) {
-      setFiles([]);
-      return;
+        setFiles([]);
+        return;
     }
 
-    const q = query(collection(db, "files"), orderBy("createdAt", "desc"));
+    const q = query(collection(db, "files"), where("ownerId", "==", currentUser.uid), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const filesData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as FileInfo[];
-      setFiles(filesData);
-    },
-    (error) => {
-      console.error("Erreur de lecture des fichiers:", error);
-      if (error.code === 'permission-denied') {
-        toast({
-          variant: "destructive",
-          title: "Accès refusé",
-          description: "Impossible de charger les fichiers. Vérifiez les règles de sécurité de Firestore.",
-        });
-      } else {
-          toast({
-          variant: "destructive",
-          title: "Erreur de base de données",
-          description: "Impossible de charger les fichiers.",
-        });
-      }
+        const filesData = querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+        })) as FileInfo[];
+        setFiles(filesData);
+    }, (error) => {
+        console.error("Erreur de lecture des fichiers:", error);
+        if (error.code === 'permission-denied') {
+            toast({
+                variant: "destructive",
+                title: "Accès refusé",
+                description: "Impossible de charger vos fichiers. Vos règles de sécurité Firestore empêchent l'accès.",
+            });
+        } else {
+            toast({
+                variant: "destructive",
+                title: "Erreur de base de données",
+                description: "Impossible de charger les fichiers.",
+            });
+        }
     });
 
     return () => unsubscribe();
   }, [currentUser, toast]);
+
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -536,36 +536,6 @@ const FicheApp = () => {
     );
   }, []);
 
-  const handleSubscribe = async (communityId: string) => {
-    if (!currentUser) {
-      toast({ variant: 'destructive', title: 'Erreur', description: 'Vous devez être connecté pour vous abonner.' });
-      return;
-    }
-
-    const communityRef = doc(db, 'communities', communityId);
-    const community = communities.find(c => c.id === communityId);
-    if (!community) return;
-
-    try {
-      if (community.subscribed) {
-        // Unsubscribe
-        await updateDoc(communityRef, {
-          members: arrayRemove(currentUser.uid)
-        });
-        toast({ title: 'Désabonnement', description: `Vous n'êtes plus abonné à la communauté "${community.name}".` });
-      } else {
-        // Subscribe
-        await updateDoc(communityRef, {
-          members: arrayUnion(currentUser.uid)
-        });
-        toast({ title: 'Abonnement réussi', description: `Vous êtes maintenant abonné à la communauté "${community.name}".` });
-      }
-    } catch (error) {
-      console.error('Failed to (un)subscribe:', error);
-      toast({ variant: 'destructive', title: 'Erreur', description: "L'opération a échoué. Veuillez réessayer." });
-    }
-  };
-
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files || event.target.files.length === 0 || !currentUser) return;
 
@@ -604,7 +574,7 @@ const FicheApp = () => {
             url: downloadURL,
             summary: summary,
             author: currentUser.displayName || 'Utilisateur inconnu',
-            creatorId: currentUser.uid,
+            ownerId: currentUser.uid,
             createdAt: serverTimestamp(),
         });
         
@@ -701,10 +671,10 @@ const FicheApp = () => {
     const [searchQuery, setSearchQuery] = useState('');
 
     const myCommunities = communities.filter(
-        (community) => community.creatorId === currentUser?.uid
+        (community) => community.ownerId === currentUser?.uid
     );
     const otherCommunities = communities.filter(
-        (community) => community.creatorId !== currentUser?.uid
+        (community) => community.ownerId !== currentUser?.uid
     );
 
     const filteredOtherCommunities = otherCommunities.filter(community =>
@@ -774,13 +744,6 @@ const FicheApp = () => {
                       className="rounded-full object-cover border-4 border-background dark:border-gray-800"
                       data-ai-hint={community.name}
                     />
-                     <Button
-                       onClick={() => handleSubscribe(community.id)}
-                       variant={community.subscribed ? 'default' : 'outline'}
-                       size="icon"
-                       className="absolute bottom-0 right-0 h-8 w-8 rounded-full">
-                      {community.subscribed ? <Check size={14}/> : <Plus size={14}/>}
-                    </Button>
                   </div>
                   <p className="font-semibold">{community.name}</p>
                   <p className="text-sm text-muted-foreground">{community.members?.length || 0} membres</p>
@@ -844,7 +807,7 @@ const FicheApp = () => {
                 name,
                 description,
                 imageUrl: downloadURL,
-                creatorId: currentUser.uid,
+                ownerId: currentUser.uid,
                 members: [currentUser.uid],
                 createdAt: serverTimestamp(),
             });
