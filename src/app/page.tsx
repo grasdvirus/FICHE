@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { analyzeText } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
+import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { auth, db } from '@/lib/firebase';
@@ -44,6 +45,10 @@ import {
 } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
 type ChatMessage = {
   type: 'user' | 'ai';
@@ -57,7 +62,7 @@ type ChatMessage = {
 };
 
 type Community = {
-  id: number;
+  id: string;
   name: string;
   members: number;
   description: string;
@@ -343,14 +348,7 @@ const FicheApp = () => {
   const [userText, setUserText] = useState('');
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [communities, setCommunities] = useState<Community[]>([
-    { id: 1, name: 'Développeurs', members: 234, description: 'Communauté de développeurs passionnés', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'code computer', subscribed: false },
-    { id: 2, name: 'Designers', members: 156, description: 'Partage de créations et conseils design', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'art design', subscribed: true },
-    { id: 3, name: 'Étudiants', members: 89, description: 'Entraide et ressources académiques', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'books university', subscribed: false },
-    { id: 4, name: 'Marketing', members: 112, description: 'Stratégies et campagnes marketing', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'charts graph', subscribed: false },
-    { id: 5, name: 'Photographes', members: 78, description: 'Partage de photos et techniques', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'camera lens', subscribed: true },
-    { id: 6, name: 'Voyageurs', members: 301, description: 'Récits et conseils de voyage', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'world map', subscribed: false },
-  ]);
+  const [communities, setCommunities] = useState<Community[]>([]);
   const [files, setFiles] = useState<FileInfo[]>([
     { id: 1, name: 'Guide React.pdf', size: '2.4 MB', date: '2025-06-25', author: 'Marie Dubois' },
     { id: 2, name: 'Présentation IA.pptx', size: '5.1 MB', date: '2025-06-24', author: 'Jean Martin' }
@@ -360,46 +358,45 @@ const FicheApp = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   const audioPlayer = useRef<HTMLAudioElement | null>(null);
-  const [audioStatus, setAudioStatus] = useState({ playingIndex: -1, isPaused: true });
+  const [audioStatus, setAudioStatus] = useState({ playingIndex: -1 });
+
+  const [isCreateCommunityOpen, setIsCreateCommunityOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
         audioPlayer.current = new Audio();
         const player = audioPlayer.current;
 
-        const onPlay = () => setAudioStatus(s => ({ ...s, isPaused: false }));
-        const onPause = () => setAudioStatus(s => ({ ...s, isPaused: true }));
-        const onEnded = () => setAudioStatus({ playingIndex: -1, isPaused: true });
+        const onEnded = () => setAudioStatus({ playingIndex: -1 });
 
-        player.addEventListener('play', onPlay);
-        player.addEventListener('pause', onPause);
         player.addEventListener('ended', onEnded);
 
         return () => {
-            player.removeEventListener('play', onPlay);
-            player.removeEventListener('pause', onPause);
             player.removeEventListener('ended', onEnded);
             player.pause();
         };
     }
   }, []);
 
-  const handlePlayAudio = (index: number, audioDataUri: string) => {
+  const handlePlayAudio = useCallback((index: number, audioDataUri: string) => {
       const player = audioPlayer.current;
       if (!player) return;
 
       if (audioStatus.playingIndex === index) {
-          if (player.paused) {
-              player.play().catch(console.error);
-          } else {
-              player.pause();
-          }
+          player.pause();
+          setAudioStatus({ playingIndex: -1 });
       } else {
           player.src = audioDataUri;
-          player.play().catch(e => console.error("Error playing audio:", e));
-          setAudioStatus({ playingIndex: index, isPaused: false });
+          player.play().catch(e => {
+            if (e.name !== 'AbortError') {
+              console.error("Error playing audio:", e)
+            }
+          });
+          setAudioStatus({ playingIndex: index });
       }
-  };
+  }, [audioStatus.playingIndex]);
 
 
   useEffect(() => {
@@ -507,7 +504,7 @@ const FicheApp = () => {
     );
   }, []);
 
-  const handleSubscribe = (communityId: number) => {
+  const handleSubscribe = (communityId: string) => {
     let communityName = '';
     const newCommunities = communities.map(community => {
       if (community.id === communityId) {
@@ -543,7 +540,7 @@ const FicheApp = () => {
             <ChatMessageDisplay
               key={`${message.timestamp.toISOString()}-${index}`}
               message={message}
-              isPlaying={audioStatus.playingIndex === index && !audioStatus.isPaused}
+              isPlaying={audioStatus.playingIndex === index}
               onPlayAudio={() => {
                 if (message.audioDataUri) {
                     handlePlayAudio(index, message.audioDataUri);
@@ -604,49 +601,146 @@ const FicheApp = () => {
     </div>
   );
 
-  const CommunitiesTab = () => (
-    <div className="p-6 overflow-y-auto h-full bg-gray-50/50 dark:bg-gray-900/50">
-      <div className="flex justify-between items-center mb-8">
-        <h2 className="text-2xl font-headline font-bold text-gray-800 dark:text-gray-200">Rejoindre des Communautés</h2>
-        <button className="bg-gradient-to-r from-primary to-accent text-white px-4 py-2 rounded-lg hover:opacity-90 transition-all duration-200 flex items-center space-x-2">
-          <Plus className="w-4 h-4" />
-          <span>Créer</span>
-        </button>
-      </div>
-      
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-8">
-        {communities.map(community => (
-          <div key={community.id} className="flex flex-col items-center justify-center gap-3 text-center transition-transform transform hover:-translate-y-1">
-            <div className="relative">
-              <div className="w-28 h-28 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden shadow-lg border-4 border-white dark:border-card hover:shadow-xl transition-shadow">
-                <Image
-                  src={community.imageUrl}
-                  alt={community.name}
-                  width={112}
-                  height={112}
-                  className="object-cover w-full h-full"
-                  data-ai-hint={community.dataAiHint}
-                />
-              </div>
-              <button
-                onClick={() => handleSubscribe(community.id)}
-                className={`absolute -bottom-1 -right-1 w-9 h-9 rounded-full flex items-center justify-center text-white shadow-md transition-all duration-300 transform hover:scale-110 border-2 border-white dark:border-card ${
-                  community.subscribed
-                    ? 'bg-green-500 hover:bg-green-600'
-                    : 'bg-primary hover:bg-accent'
-                }`}
-                aria-label={community.subscribed ? `Se désabonner de ${community.name}` : `S'abonner à ${community.name}`}
-              >
-                {community.subscribed ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-              </button>
+  const CommunitiesTab = () => {
+    const [isCreateCommunityOpen, setIsCreateCommunityOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const filteredCommunities = communities.filter(community =>
+      community.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    return (
+      <div className="p-6 overflow-y-auto h-full bg-gray-50/50 dark:bg-gray-900/50">
+        <div className="flex justify-between items-center mb-8">
+          <h2 className="text-2xl font-headline font-bold text-gray-800 dark:text-gray-200">Rejoindre des Communautés</h2>
+          <div className="flex items-center gap-4">
+             <div className="relative">
+              <Input
+                type="text"
+                placeholder="Rechercher..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             </div>
-            <span className="font-semibold text-gray-800 dark:text-gray-200 mt-1">{community.name}</span>
-            <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">{community.members} membres</p>
+            <Button
+              onClick={() => setIsCreateCommunityOpen(true)}
+              className="bg-gradient-to-r from-primary to-accent text-white px-4 py-2 rounded-lg hover:opacity-90 transition-all duration-200 flex items-center space-x-2">
+              <Plus className="w-4 h-4" />
+              <span>Créer</span>
+            </Button>
           </div>
-        ))}
+        </div>
+        
+        {filteredCommunities.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-8">
+            {filteredCommunities.map(community => (
+              <div key={community.id} className="flex flex-col items-center justify-center gap-3 text-center transition-transform transform hover:-translate-y-1">
+                <div className="relative">
+                  <div className="w-28 h-28 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden shadow-lg border-4 border-white dark:border-card hover:shadow-xl transition-shadow">
+                    <Image
+                      src={community.imageUrl}
+                      alt={community.name}
+                      width={112}
+                      height={112}
+                      className="object-cover w-full h-full"
+                      data-ai-hint={community.dataAiHint}
+                    />
+                  </div>
+                  <button
+                    onClick={() => handleSubscribe(community.id)}
+                    className={`absolute -bottom-1 -right-1 w-9 h-9 rounded-full flex items-center justify-center text-white shadow-md transition-all duration-300 transform hover:scale-110 border-2 border-white dark:border-card ${
+                      community.subscribed
+                        ? 'bg-green-500 hover:bg-green-600'
+                        : 'bg-primary hover:bg-accent'
+                    }`}
+                    aria-label={community.subscribed ? `Se désabonner de ${community.name}` : `S'abonner à ${community.name}`}
+                  >
+                    {community.subscribed ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                  </button>
+                </div>
+                <span className="font-semibold text-gray-800 dark:text-gray-200 mt-1">{community.name}</span>
+                <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">{community.members} membres</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-600 dark:text-gray-300 mb-2">Aucune communauté trouvée</h3>
+            <p className="text-gray-500 dark:text-gray-400">Soyez le premier à en créer une !</p>
+          </div>
+        )}
+        <CreateCommunityDialog isOpen={isCreateCommunityOpen} onOpenChange={setIsCreateCommunityOpen} />
       </div>
-    </div>
-  );
+    );
+  };
+  
+  const CreateCommunityDialog = ({ isOpen, onOpenChange }: { isOpen: boolean, onOpenChange: (open: boolean) => void }) => {
+    const [name, setName] = useState('');
+    const [description, setDescription] = useState('');
+    const [isGenerating, setIsGenerating] = useState(false);
+    const { toast } = useToast();
+
+    const handleGenerateDescription = async () => {
+      if (!name.trim()) {
+        toast({ variant: "destructive", title: "Erreur", description: "Veuillez d'abord donner un nom à votre communauté." });
+        return;
+      }
+      setIsGenerating(true);
+      try {
+        const result = await generateCommunityDescription({ prompt: name });
+        setDescription(result.description);
+      } catch (error) {
+        console.error("Error generating description:", error);
+        toast({ variant: "destructive", title: "Erreur", description: "Impossible de générer la description." });
+      } finally {
+        setIsGenerating(false);
+      }
+    };
+    
+    const handleCreate = async () => {
+        // TODO: Mettre en œuvre la logique de création de la communauté, y compris le stockage dans Firestore.
+        console.log("Creating community:", { name, description });
+        toast({ title: "Communauté créée", description: `La communauté "${name}" a été créée avec succès.` });
+        onOpenChange(false);
+        setName('');
+        setDescription('');
+    };
+
+    return (
+      <Dialog open={isOpen} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Créer une nouvelle communauté</DialogTitle>
+            <DialogDescription>
+              Donnez un nom à votre communauté et décrivez-la pour attirer des membres.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="name" className="text-right">Nom</label>
+              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} className="col-span-3" />
+            </div>
+            <div className="grid grid-cols-4 items-start gap-4">
+              <label htmlFor="description" className="text-right pt-2">Description</label>
+              <div className="col-span-3 space-y-2">
+                <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} />
+                <Button onClick={handleGenerateDescription} disabled={isGenerating} variant="outline" size="sm" className="gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  {isGenerating ? 'Génération...' : 'Générer avec l\'IA'}
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="submit" onClick={handleCreate}>Créer la communauté</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  };
 
   const FilesTab = () => (
     <div className="p-6 overflow-y-auto h-full bg-gray-50/50 dark:bg-gray-900/50">
@@ -882,9 +976,5 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
-
-    
-
-    
 
     
