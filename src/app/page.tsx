@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Image from 'next/image';
 import { 
   MessageCircle, 
   Users, 
@@ -25,7 +26,8 @@ import {
   Pause,
   Copy,
   ThumbsUp,
-  RotateCw
+  RotateCw,
+  Check
 } from 'lucide-react';
 import { analyzeText } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
@@ -59,6 +61,9 @@ type Community = {
   name: string;
   members: number;
   description: string;
+  imageUrl: string;
+  dataAiHint: string;
+  subscribed: boolean;
 };
 
 type FileInfo = {
@@ -339,9 +344,12 @@ const FicheApp = () => {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [communities, setCommunities] = useState<Community[]>([
-    { id: 1, name: 'Développeurs', members: 234, description: 'Communauté de développeurs passionnés' },
-    { id: 2, name: 'Designers', members: 156, description: 'Partage de créations et conseils design' },
-    { id: 3, name: 'Étudiants', members: 89, description: 'Entraide et ressources académiques' }
+    { id: 1, name: 'Développeurs', members: 234, description: 'Communauté de développeurs passionnés', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'code computer', subscribed: false },
+    { id: 2, name: 'Designers', members: 156, description: 'Partage de créations et conseils design', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'art design', subscribed: true },
+    { id: 3, name: 'Étudiants', members: 89, description: 'Entraide et ressources académiques', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'books university', subscribed: false },
+    { id: 4, name: 'Marketing', members: 112, description: 'Stratégies et campagnes marketing', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'charts graph', subscribed: false },
+    { id: 5, name: 'Photographes', members: 78, description: 'Partage de photos et techniques', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'camera lens', subscribed: true },
+    { id: 6, name: 'Voyageurs', members: 301, description: 'Récits et conseils de voyage', imageUrl: 'https://placehold.co/128x128.png', dataAiHint: 'world map', subscribed: false },
   ]);
   const [files, setFiles] = useState<FileInfo[]>([
     { id: 1, name: 'Guide React.pdf', size: '2.4 MB', date: '2025-06-25', author: 'Marie Dubois' },
@@ -388,7 +396,7 @@ const FicheApp = () => {
           }
       } else {
           player.src = audioDataUri;
-          player.play().catch(console.error);
+          player.play().catch(e => console.error("Error playing audio:", e));
           setAudioStatus({ playingIndex: index, isPaused: false });
       }
   };
@@ -499,6 +507,28 @@ const FicheApp = () => {
     );
   }, []);
 
+  const handleSubscribe = (communityId: number) => {
+    let communityName = '';
+    const newCommunities = communities.map(community => {
+      if (community.id === communityId) {
+        communityName = community.name;
+        return { ...community, subscribed: !community.subscribed };
+      }
+      return community;
+    });
+
+    setCommunities(newCommunities);
+    
+    const isSubscribed = newCommunities.find(c => c.id === communityId)?.subscribed;
+
+    toast({
+        title: isSubscribed ? "Abonnement réussi" : "Désabonnement",
+        description: isSubscribed 
+            ? `Vous êtes maintenant abonné à la communauté "${communityName}".`
+            : `Vous n'êtes plus abonné à la communauté "${communityName}".`,
+    });
+  };
+
   const ChatInterface = () => (
     <div className="flex-1 flex flex-col h-full bg-gray-50/50 dark:bg-gray-900/50">
       <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -576,33 +606,42 @@ const FicheApp = () => {
 
   const CommunitiesTab = () => (
     <div className="p-6 overflow-y-auto h-full bg-gray-50/50 dark:bg-gray-900/50">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-headline font-bold text-gray-800 dark:text-gray-200">Communautés</h2>
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="text-2xl font-headline font-bold text-gray-800 dark:text-gray-200">Rejoindre des Communautés</h2>
         <button className="bg-gradient-to-r from-primary to-accent text-white px-4 py-2 rounded-lg hover:opacity-90 transition-all duration-200 flex items-center space-x-2">
           <Plus className="w-4 h-4" />
           <span>Créer</span>
         </button>
       </div>
       
-      <div className="grid gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-8">
         {communities.map(community => (
-          <div key={community.id} className="bg-white dark:bg-card rounded-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all duration-200">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-headline font-semibold text-gray-800 dark:text-gray-200">{community.name}</h3>
-              <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
-                <Users className="w-4 h-4" />
-                <span>{community.members} membres</span>
+          <div key={community.id} className="flex flex-col items-center justify-center gap-3 text-center transition-transform transform hover:-translate-y-1">
+            <div className="relative">
+              <div className="w-28 h-28 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden shadow-lg border-4 border-white dark:border-card hover:shadow-xl transition-shadow">
+                <Image
+                  src={community.imageUrl}
+                  alt={community.name}
+                  width={112}
+                  height={112}
+                  className="object-cover w-full h-full"
+                  data-ai-hint={community.dataAiHint}
+                />
               </div>
-            </div>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">{community.description}</p>
-            <div className="flex space-x-3">
-              <button className="bg-primary text-white px-4 py-2 rounded-lg hover:bg-opacity-80 transition-colors">
-                Rejoindre
+              <button
+                onClick={() => handleSubscribe(community.id)}
+                className={`absolute -bottom-1 -right-1 w-9 h-9 rounded-full flex items-center justify-center text-white shadow-md transition-all duration-300 transform hover:scale-110 border-2 border-white dark:border-card ${
+                  community.subscribed
+                    ? 'bg-green-500 hover:bg-green-600'
+                    : 'bg-primary hover:bg-accent'
+                }`}
+                aria-label={community.subscribed ? `Se désabonner de ${community.name}` : `S'abonner à ${community.name}`}
+              >
+                {community.subscribed ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
               </button>
-              <button className="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                Voir plus
-              </button>
             </div>
+            <span className="font-semibold text-gray-800 dark:text-gray-200 mt-1">{community.name}</span>
+            <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">{community.members} membres</p>
           </div>
         ))}
       </div>
@@ -843,6 +882,8 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
+
+    
 
     
 
