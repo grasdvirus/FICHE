@@ -25,9 +25,7 @@ import {
   FileText,
   Trash2,
   PenSquare,
-  UploadCloud,
-  Download,
-  Link,
+  Link as LinkIcon,
   PlusCircle,
   CheckCircle2,
   File as FileIcon
@@ -46,7 +44,7 @@ import {
   onAuthStateChanged,
   User as FirebaseUser
 } from "firebase/auth";
-import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where, getDocs, Timestamp, writeBatch, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
+import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where, getDocs, Timestamp, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
 import { ref as rtdbRef, onValue, push, serverTimestamp as rtdbServerTimestamp, off } from "firebase/database";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -56,7 +54,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 
@@ -94,6 +91,7 @@ type EmailMessage = {
   timestamp: Timestamp;
   isRead: boolean;
   replyTo?: string | null;
+  participantUids: string[];
 };
 
 type CommunityMessage = {
@@ -111,18 +109,7 @@ type AppUser = {
   photoURL?: string;
 };
 
-type SharedFile = {
-  id: string;
-  name: string;
-  type: string;
-  size: number;
-  url: string;
-  ownerId: string;
-  createdAt: Timestamp;
-  summary?: string;
-};
-
-type ActiveTab = 'chat' | 'communities' | 'files' | 'messages' | 'settings';
+type ActiveTab = 'chat' | 'communities' | 'messages' | 'settings';
 
 // --- Global Audio Player ---
 const AudioPlayerContext = React.createContext<{
@@ -505,16 +492,17 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
         return () => unsubscribe();
     }, [currentUser.uid, toast]);
 
-    const handleSubscription = async (communityId: string, isMember: boolean) => {
+    const handleSubscription = async (communityId: string, isJoining: boolean) => {
       const communityRef = doc(db, 'communities', communityId);
       try {
         await updateDoc(communityRef, {
-          members: isMember 
-            ? arrayRemove(currentUser.uid) 
-            : arrayUnion(currentUser.uid),
+          members: isJoining
+            ? arrayUnion(currentUser.uid) 
+            : arrayRemove(currentUser.uid),
         });
         toast({
-          title: isMember ? 'Désabonnement réussi' : 'Abonnement réussi',
+          title: isJoining ? 'Abonnement réussi' : 'Désabonnement réussi',
+          description: `Vous avez ${isJoining ? 'rejoint' : 'quitté'} la communauté.`
         });
       } catch (error) {
         console.error("Erreur d'abonnement:", error);
@@ -570,17 +558,16 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
             {filteredCommunities.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-8">
                     {filteredCommunities.map(community => {
-                        const isMember = community.members.includes(currentUser.uid);
                         return (
                             <div key={community.id} className="group relative flex flex-col items-center text-center">
-                                <div onClick={() => onEnterCommunity(community)} className="cursor-pointer">
+                                <div onClick={() => handleSubscription(community.id, true)} className="cursor-pointer">
                                     <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
                                         <AvatarImage src={community.imageUrl} data-ai-hint="logo community"/>
                                         <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
                                     </Avatar>
                                 </div>
-                                <button onClick={() => handleSubscription(community.id, isMember)} className="absolute top-0 right-0 -mt-1 -mr-1 bg-background rounded-full p-1 shadow-md hover:scale-110 transition-transform">
-                                  {isMember ? <CheckCircle2 size={24} className="text-green-500" /> : <PlusCircle size={24} className="text-primary"/>}
+                                <button onClick={() => handleSubscription(community.id, true)} className="absolute top-0 right-0 -mt-1 -mr-1 bg-background rounded-full p-1 shadow-md hover:scale-110 transition-transform">
+                                  <PlusCircle size={24} className="text-primary"/>
                                 </button>
                                 <p className="font-semibold">{community.name}</p>
                                 <p className="text-sm text-muted-foreground line-clamp-2">{community.description}</p>
@@ -719,7 +706,7 @@ const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Comm
       setIsLoading(false);
     });
 
-    return () => off(messagesRef);
+    return () => off(messagesRef, 'value', unsubscribe);
   }, [community.id, toast]);
 
   useEffect(() => {
@@ -826,10 +813,10 @@ const NewMessageDialog = ({ isOpen, onOpenChange, currentUser, users }: { isOpen
                 timestamp: serverTimestamp(),
                 isRead: false,
                 replyTo: null,
+                participantUids: [currentUser.uid, recipientUid]
             });
             toast({ title: 'Message envoyé' });
             onOpenChange(false);
-            // Reset form
             setRecipientUid('');
             setSubject('');
             setContent('');
@@ -886,10 +873,11 @@ const MessageListItem = ({ message, onSelect, isSelected }: { message: EmailMess
 const MessageDetail = ({ message, currentUser }: { message: EmailMessage, currentUser: FirebaseUser }) => {
     const { toast } = useToast();
     const [replyContent, setReplyContent] = useState('');
+    const [isSendingReply, setIsSendingReply] = useState(false);
 
     const handleReply = async () => {
         if (!replyContent.trim()) return;
-        
+        setIsSendingReply(true);
         try {
             await addDoc(collection(db, 'messages'), {
                 from: currentUser.uid,
@@ -901,12 +889,15 @@ const MessageDetail = ({ message, currentUser }: { message: EmailMessage, curren
                 timestamp: serverTimestamp(),
                 isRead: false,
                 replyTo: message.id,
+                participantUids: [currentUser.uid, message.from]
             });
             toast({ title: 'Réponse envoyée' });
             setReplyContent('');
         } catch (error) {
             console.error("Error sending reply:", error);
             toast({ variant: 'destructive', title: 'Erreur', description: "L'envoi de la réponse a échoué." });
+        } finally {
+            setIsSendingReply(false);
         }
     };
     
@@ -934,7 +925,9 @@ const MessageDetail = ({ message, currentUser }: { message: EmailMessage, curren
                     placeholder="Écrire une réponse..."
                     rows={4}
                 />
-                <Button onClick={handleReply} disabled={!replyContent.trim()} className="mt-2">Envoyer la réponse</Button>
+                <Button onClick={handleReply} disabled={!replyContent.trim() || isSendingReply} className="mt-2">
+                    {isSendingReply ? "Envoi..." : "Envoyer la réponse"}
+                </Button>
             </div>
         </div>
     );
@@ -965,57 +958,29 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
             setMessages([]);
             return;
         }
-
+        
         const messagesRef = collection(db, 'messages');
+        const q = query(messagesRef, where('participantUids', 'array-contains', currentUser.uid));
 
-        const inboxQuery = query(messagesRef, where('to', '==', currentUser.uid), orderBy('timestamp', 'desc'));
-        const sentQuery = query(messagesRef, where('from', '==', currentUser.uid));
-
-        const handleError = (error: any) => {
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setFetchError(null);
+            const allMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage));
+            allMessages.sort((a, b) => (b.timestamp?.toDate().getTime() || 0) - (a.timestamp?.toDate().getTime() || 0));
+            setMessages(allMessages);
+        }, (error: any) => {
             console.error("Error fetching messages:", error);
-            if (error.code === 'permission-denied' || error.code === 'failed-precondition') {
-                setFetchError("La requête a été bloquée par les règles de sécurité ou nécessite un index Firestore. Veuillez consulter la console de votre navigateur (F12) et la console Firebase pour créer l'index manquant.");
-                toast({ 
-                    variant: 'destructive', 
-                    title: 'Erreur de chargement des messages', 
-                    description: "Vérifiez vos règles de sécurité et créez les index Firestore requis." 
-                });
-            } else {
+            if (error.code === 'permission-denied') {
+                setFetchError("Permission refusée. Vérifiez vos règles de sécurité Firestore.");
+            } else if (error.code === 'failed-precondition') {
+                 setFetchError("La requête nécessite un index Firestore. Créez-le via le lien dans la console du navigateur.");
+            }
+            else {
                 setFetchError('Une erreur est survenue lors du chargement des messages.');
             }
-        };
+        });
 
-        const listeners: { [key: string]: EmailMessage[] } = { inbox: [], sent: [] };
-
-        const updateMessages = () => {
-            const allMessages = [...listeners.inbox, ...listeners.sent];
-            const uniqueMessages = Array.from(new Map(allMessages.map(m => [m.id, m])).values());
-            
-            uniqueMessages.sort((a, b) => {
-                const timeA = a.timestamp?.toDate().getTime() || 0;
-                const timeB = b.timestamp?.toDate().getTime() || 0;
-                return timeB - timeA;
-            });
-            setMessages(uniqueMessages);
-        };
-        
-        const unsubInbox = onSnapshot(inboxQuery, (snapshot) => {
-            setFetchError(null);
-            listeners.inbox = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage));
-            updateMessages();
-        }, handleError);
-
-        const unsubSent = onSnapshot(sentQuery, (snapshot) => {
-            setFetchError(null);
-            listeners.sent = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage));
-            updateMessages();
-        }, handleError);
-
-        return () => {
-            unsubInbox();
-            unsubSent();
-        };
-    }, [currentUser, toast]);
+        return () => unsubscribe();
+    }, [currentUser.uid]);
 
     useEffect(() => {
         if (!selectedMessageId) return;
@@ -1083,125 +1048,6 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
         </div>
     );
 };
-
-// --- Files Tab ---
-const FilesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
-    const [files, setFiles] = useState<SharedFile[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const { toast } = useToast();
-    const fileInputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        if (!currentUser) return;
-        const q = query(collection(db, "files"), where("ownerId", "==", currentUser.uid), orderBy("createdAt", "desc"));
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const userFiles = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SharedFile));
-            setFiles(userFiles);
-        }, (error) => {
-            console.error("Erreur de lecture des fichiers: ", error);
-            if (error.code === 'permission-denied') {
-                 toast({
-                    variant: "destructive",
-                    title: "Permission refusée",
-                    description: "Vos règles de sécurité ne permettent pas de lire cette liste de fichiers. Assurez-vous d'être le propriétaire.",
-                });
-            }
-        });
-        return () => unsubscribe();
-    }, [currentUser, toast]);
-
-    const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file || !currentUser) return;
-
-        setIsLoading(true);
-        
-        try {
-            // This is a placeholder for getting a shareable link.
-            // In a real app, you'd upload the file to a service and get a URL.
-            // For this version, we just simulate adding a link.
-            const fileLink = prompt("Veuillez coller l'URL partageable de votre fichier:", "");
-
-            if (!fileLink) {
-                 toast({ variant: "destructive", title: "Annulé", description: "Aucun lien n'a été fourni." });
-                 setIsLoading(false);
-                 if(fileInputRef.current) fileInputRef.current.value = "";
-                 return;
-            }
-
-            await addDoc(collection(db, 'files'), {
-                name: file.name,
-                type: file.type,
-                size: file.size,
-                url: fileLink,
-                ownerId: currentUser.uid,
-                createdAt: serverTimestamp(),
-            });
-
-            toast({ title: "Lien de fichier ajouté", description: `${file.name} a été enregistré.` });
-        } catch (error) {
-            console.error("Error adding file link:", error);
-            toast({ variant: "destructive", title: "Erreur", description: "Impossible d'ajouter le lien du fichier." });
-        } finally {
-            setIsLoading(false);
-            if(fileInputRef.current) fileInputRef.current.value = "";
-        }
-    };
-    
-    const handleDeleteFile = async (fileId: string) => {
-        try {
-            await deleteDoc(doc(db, 'files', fileId));
-            toast({title: "Fichier supprimé", description: "Le lien du fichier a été supprimé."});
-        } catch (error) {
-            console.error("Error deleting file:", error);
-            toast({variant: "destructive", title: "Erreur", description: "La suppression a échoué."});
-        }
-    };
-
-    return (
-        <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto">
-            <header className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold">Fichiers</h2>
-                <Button onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
-                    <UploadCloud size={16} className="mr-2" />
-                    {isLoading ? "Traitement..." : "Partager un lien"}
-                </Button>
-                <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
-            </header>
-             {files.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {files.map(file => (
-                        <div key={file.id} className="bg-background dark:bg-gray-800 rounded-lg p-4 flex flex-col">
-                            <div className="flex-1">
-                                <FileIcon className="w-12 h-12 text-primary mx-auto mb-4"/>
-                                <p className="font-semibold truncate text-center">{file.name}</p>
-                                <p className="text-xs text-muted-foreground text-center">{file.type} - {(file.size / 1024).toFixed(2)} KB</p>
-                            </div>
-                            <div className="flex gap-2 mt-4">
-                                <Button variant="outline" size="sm" className="flex-1" asChild>
-                                  <a href={file.url} target="_blank" rel="noopener noreferrer"><Download size={16}/></a>
-                                </Button>
-                                <Button variant="outline" size="sm" className="flex-1" onClick={() => {
-                                    navigator.clipboard.writeText(file.url);
-                                    toast({title: "Lien copié"});
-                                }}><Link size={16}/></Button>
-                                <Button variant="destructive" size="icon" onClick={() => handleDeleteFile(file.id)}>
-                                    <Trash2 size={16}/>
-                                </Button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground">
-                    <FileText size={48} className="mb-4"/>
-                    <h3 className="text-xl font-semibold">Aucun fichier partagé</h3>
-                    <p>Cliquez sur "Partager un lien" pour commencer.</p>
-                </div>
-            )}
-        </div>
-    );
-};
   
 // --- Settings Component ---
 const SettingsTab = ({theme, setTheme, currentUser}: {theme: 'light' | 'dark', setTheme: (theme: 'light' | 'dark') => void, currentUser: FirebaseUser}) => (
@@ -1263,13 +1109,13 @@ const FicheApp = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [activeCommunityChat, setActiveCommunityChat] = useState<Community | null>(null);
   const { toast } = useToast();
-  const { useContext } = React;
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user as FirebaseUser | null);
       if (!user) {
         setActiveCommunityChat(null);
+        setActiveTab('chat');
       }
       setIsAuthenticating(false);
     });
@@ -1354,10 +1200,6 @@ const FicheApp = () => {
               <Users size={18} className="mr-3"/>
               Communautés
             </Button>
-             <Button variant={activeTab === 'files' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('files')}>
-              <FileText size={18} className="mr-3"/>
-              Fichiers
-            </Button>
             <Button variant={activeTab === 'messages' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('messages')}>
               <Mail size={18} className="mr-3"/>
               Messages
@@ -1389,7 +1231,6 @@ const FicheApp = () => {
         <main className="flex-1 flex flex-col">
           {activeTab === 'chat' && <ChatInterface currentUser={currentUser} />}
           {activeTab === 'communities' && <CommunitiesTab currentUser={currentUser} onEnterCommunity={handleEnterCommunity} />}
-          {activeTab === 'files' && <FilesTab currentUser={currentUser}/>}
           {activeTab === 'messages' && <MessagesTab currentUser={currentUser}/>}
           {activeTab === 'settings' && <SettingsTab theme={theme} setTheme={setTheme} currentUser={currentUser} />}
         </main>
@@ -1399,3 +1240,5 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
+
+    
