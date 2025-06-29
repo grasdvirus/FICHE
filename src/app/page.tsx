@@ -187,7 +187,7 @@ const AudioPlayerProvider = ({ children }: { children: React.ReactNode }) => {
 };
 
 const useAudioPlayer = () => {
-  const context = useContext(AudioPlayerContext);
+  const context = React.useContext(AudioPlayerContext);
   if (!context) {
     throw new Error('useAudioPlayer must be used within an AudioPlayerProvider');
   }
@@ -965,26 +965,53 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
 
     useEffect(() => {
         const messagesRef = collection(db, 'messages');
-        const q = query(messagesRef, where('participantUids', 'array-contains', currentUser.uid), orderBy('timestamp', 'desc'));
-        
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            setFetchError(null);
-            const fetchedMessages = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            } as EmailMessage));
-            setMessages(fetchedMessages);
-        }, (error) => {
+    
+        // Vos règles de sécurité Firestore exigent des requêtes séparées pour la boîte de réception et les messages envoyés.
+        const inboxQuery = query(messagesRef, where('receiverUid', '==', currentUser.uid), orderBy('timestamp', 'desc'));
+        const sentQuery = query(messagesRef, where('senderUid', '==', currentUser.uid), orderBy('timestamp', 'desc'));
+    
+        let inboxMessages: EmailMessage[] = [];
+        let sentMessages: EmailMessage[] = [];
+    
+        const combineAndSetMessages = () => {
+            const allMessages = [...inboxMessages, ...sentMessages];
+            // Supprimer les doublons si un utilisateur s'envoie un message à lui-même
+            const uniqueMessages = Array.from(new Map(allMessages.map(m => [m.id, m])).values());
+            // Trier tous les messages par ordre chronologique
+            uniqueMessages.sort((a, b) => {
+                const timeA = a.timestamp?.toDate().getTime() || 0;
+                const timeB = b.timestamp?.toDate().getTime() || 0;
+                return timeB - timeA;
+            });
+            setMessages(uniqueMessages);
+        };
+    
+        const handleError = (error: any) => {
             console.error("Error fetching messages:", error);
             if (error.code === 'permission-denied') {
-                setFetchError("Erreur de permissions. Veuillez vérifier vos règles de sécurité Firestore et les mettre à jour pour autoriser la lecture des messages si l'utilisateur fait partie des 'participantUids'.");
+                setFetchError("Permission refusée. Vos règles de sécurité Firestore n'autorisent pas cette requête. Veuillez les vérifier.");
             } else {
                 setFetchError('Impossible de charger les messages.');
             }
-            toast({ variant: 'destructive', title: 'Erreur', description: 'Impossible de charger les messages.' });
-        });
-
-        return () => unsubscribe();
+            toast({ variant: 'destructive', title: 'Erreur de chargement', description: "Impossible de charger les messages. Vérifiez vos règles de sécurité Firestore." });
+        };
+    
+        const unsubscribeInbox = onSnapshot(inboxQuery, (snapshot) => {
+            setFetchError(null);
+            inboxMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage));
+            combineAndSetMessages();
+        }, handleError);
+    
+        const unsubscribeSent = onSnapshot(sentQuery, (snapshot) => {
+            setFetchError(null);
+            sentMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage));
+            combineAndSetMessages();
+        }, handleError);
+    
+        return () => {
+            unsubscribeInbox();
+            unsubscribeSent();
+        };
     }, [currentUser.uid, toast]);
 
     useEffect(() => {
