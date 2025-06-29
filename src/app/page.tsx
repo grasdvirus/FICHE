@@ -492,8 +492,8 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
                 id: doc.id,
                 ...doc.data(),
             })) as Community[];
-            setCommunities(allCommunities.filter(c => c.ownerId !== currentUser.uid));
-            setMyCommunities(allCommunities.filter(c => c.ownerId === currentUser.uid));
+            setCommunities(allCommunities.filter(c => !c.members.includes(currentUser.uid)));
+            setMyCommunities(allCommunities.filter(c => c.members.includes(currentUser.uid)));
         }, (error) => {
             console.error("Erreur de lecture des communautés:", error);
             toast({
@@ -518,7 +518,7 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
         });
       } catch (error) {
         console.error("Erreur d'abonnement:", error);
-        toast({ variant: 'destructive', title: 'Erreur', description: "L'opération a échoué. Vérifiez vos règles Firestore qui n'autorisent que le propriétaire à modifier une communauté." });
+        toast({ variant: 'destructive', title: 'Erreur', description: "L'opération a échoué. Vos règles Firestore n'autorisent peut-être pas cette action." });
       }
     };
 
@@ -555,7 +555,7 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
                         {myCommunities.map(community => (
                             <div key={community.id} onClick={() => onEnterCommunity(community)} className="group relative flex flex-col items-center text-center cursor-pointer">
                                 <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
-                                    <AvatarImage src={community.imageUrl} />
+                                    <AvatarImage src={community.imageUrl} data-ai-hint="logo community" />
                                     <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
                                 </Avatar>
                                 <p className="font-semibold">{community.name}</p>
@@ -575,7 +575,7 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
                             <div key={community.id} className="group relative flex flex-col items-center text-center">
                                 <div onClick={() => onEnterCommunity(community)} className="cursor-pointer">
                                     <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
-                                        <AvatarImage src={community.imageUrl} />
+                                        <AvatarImage src={community.imageUrl} data-ai-hint="logo community"/>
                                         <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
                                     </Avatar>
                                 </div>
@@ -633,7 +633,7 @@ const CreateCommunityDialog = ({ isOpen, onOpenChange, currentUser }: { isOpen: 
       }
       setIsCreating(true);
       try {
-          const placeholderImageUrl = `https://placehold.co/200x200.png?text=${name.charAt(0)}`;
+          const placeholderImageUrl = `https://placehold.co/200x200.png`;
           
           await addDoc(collection(db, 'communities'), {
               name,
@@ -954,22 +954,45 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
         const q = query(usersCol, where('uid', '!=', currentUser.uid));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setUsers(snapshot.docs.map(doc => doc.data() as AppUser));
+        }, (error) => {
+            console.error("Error fetching users:", error);
+            // Handle user fetching error if necessary
         });
         return () => unsubscribe();
     }, [currentUser.uid]);
 
     useEffect(() => {
+        if (!currentUser?.uid) {
+            setMessages([]);
+            return;
+        }
+
         const messagesRef = collection(db, 'messages');
-    
-        const inboxQuery = query(messagesRef, where('to', '==', currentUser.uid), orderBy('timestamp', 'desc'));
-        const sentQuery = query(messagesRef, where('from', '==', currentUser.uid), orderBy('timestamp', 'desc'));
-    
-        let inboxMessages: EmailMessage[] = [];
-        let sentMessages: EmailMessage[] = [];
-    
-        const combineAndSetMessages = () => {
-            const allMessages = [...inboxMessages, ...sentMessages];
+
+        // Queries without ordering to avoid needing a composite index. Sorting is done on the client.
+        const inboxQuery = query(messagesRef, where('to', '==', currentUser.uid));
+        const sentQuery = query(messagesRef, where('from', '==', currentUser.uid));
+
+        const handleError = (error: any) => {
+            console.error("Error fetching messages:", error);
+            if (error.code === 'permission-denied' || error.code === 'failed-precondition') {
+                setFetchError("La requête a été bloquée par les règles de sécurité ou nécessite un index Firestore. Veuillez consulter la console de votre navigateur (F12) et la console Firebase pour créer l'index manquant.");
+                toast({ 
+                    variant: 'destructive', 
+                    title: 'Erreur de chargement des messages', 
+                    description: "Vérifiez vos règles de sécurité et créez les index Firestore requis." 
+                });
+            } else {
+                setFetchError('Une erreur est survenue lors du chargement des messages.');
+            }
+        };
+
+        const listeners: { [key: string]: EmailMessage[] } = { inbox: [], sent: [] };
+
+        const updateMessages = () => {
+            const allMessages = [...listeners.inbox, ...listeners.sent];
             const uniqueMessages = Array.from(new Map(allMessages.map(m => [m.id, m])).values());
+            
             uniqueMessages.sort((a, b) => {
                 const timeA = a.timestamp?.toDate().getTime() || 0;
                 const timeB = b.timestamp?.toDate().getTime() || 0;
@@ -977,34 +1000,24 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
             });
             setMessages(uniqueMessages);
         };
-    
-        const handleError = (error: any) => {
-            console.error("Error fetching messages:", error);
-            if (error.code === 'permission-denied') {
-                setFetchError("Permission refusée. Vos règles de sécurité Firestore n'autorisent pas cette requête. Veuillez les vérifier.");
-            } else {
-                setFetchError('Impossible de charger les messages.');
-            }
-            toast({ variant: 'destructive', title: 'Erreur de chargement', description: "Impossible de charger les messages. Vérifiez vos règles de sécurité Firestore." });
-        };
-    
-        const unsubscribeInbox = onSnapshot(inboxQuery, (snapshot) => {
+        
+        const unsubInbox = onSnapshot(inboxQuery, (snapshot) => {
             setFetchError(null);
-            inboxMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage));
-            combineAndSetMessages();
+            listeners.inbox = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage));
+            updateMessages();
         }, handleError);
-    
-        const unsubscribeSent = onSnapshot(sentQuery, (snapshot) => {
+
+        const unsubSent = onSnapshot(sentQuery, (snapshot) => {
             setFetchError(null);
-            sentMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage));
-            combineAndSetMessages();
+            listeners.sent = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage));
+            updateMessages();
         }, handleError);
-    
+
         return () => {
-            unsubscribeInbox();
-            unsubscribeSent();
+            unsubInbox();
+            unsubSent();
         };
-    }, [currentUser.uid, toast]);
+    }, [currentUser, toast]);
 
     useEffect(() => {
         const message = messages.find(m => m.id === selectedMessageId);
@@ -1105,11 +1118,23 @@ const FilesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
         setIsLoading(true);
         
         try {
+            // This is a placeholder for getting a shareable link.
+            // In a real app, you'd upload the file to a service and get a URL.
+            // For this version, we just simulate adding a link.
+            const fileLink = prompt("Veuillez coller l'URL partageable de votre fichier:", "");
+
+            if (!fileLink) {
+                 toast({ variant: "destructive", title: "Annulé", description: "Aucun lien n'a été fourni." });
+                 setIsLoading(false);
+                 if(fileInputRef.current) fileInputRef.current.value = "";
+                 return;
+            }
+
             await addDoc(collection(db, 'files'), {
                 name: file.name,
                 type: file.type,
                 size: file.size,
-                url: "file_link_placeholder", // Vous remplacerez ceci par la vraie logique de lien
+                url: fileLink,
                 ownerId: currentUser.uid,
                 createdAt: serverTimestamp(),
             });
@@ -1154,6 +1179,9 @@ const FilesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
                                 <p className="text-xs text-muted-foreground text-center">{file.type} - {(file.size / 1024).toFixed(2)} KB</p>
                             </div>
                             <div className="flex gap-2 mt-4">
+                                <Button variant="outline" size="sm" className="flex-1" asChild>
+                                  <a href={file.url} target="_blank" rel="noopener noreferrer"><Download size={16}/></a>
+                                </Button>
                                 <Button variant="outline" size="sm" className="flex-1" onClick={() => {
                                     navigator.clipboard.writeText(file.url);
                                     toast({title: "Lien copié"});
@@ -1372,7 +1400,5 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
-
-    
 
     
