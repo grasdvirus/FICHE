@@ -969,9 +969,8 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
 
         const messagesRef = collection(db, 'messages');
 
-        // Queries without ordering to avoid needing a composite index. Sorting is done on the client.
-        const inboxQuery = query(messagesRef, where('to', '==', currentUser.uid));
-        const sentQuery = query(messagesRef, where('from', '==', currentUser.uid));
+        const inboxQuery = query(messagesRef, where('to', '==', currentUser.uid), orderBy('timestamp', 'desc'));
+        const sentQuery = query(messagesRef, where('from', '==', currentUser.uid), orderBy('timestamp', 'desc'));
 
         const handleError = (error: any) => {
             console.error("Error fetching messages:", error);
