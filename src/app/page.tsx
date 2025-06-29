@@ -24,7 +24,13 @@ import {
   Inbox,
   FileText,
   Trash2,
-  PenSquare
+  PenSquare,
+  UploadCloud,
+  Download,
+  Link,
+  PlusCircle,
+  CheckCircle2,
+  File as FileIcon
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -33,14 +39,15 @@ import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
-import { auth, db, rtdb, googleProvider } from '@/lib/firebase';
+import { auth, db, rtdb, googleProvider, storage } from '@/lib/firebase';
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import {
   signInWithPopup,
   signOut,
   onAuthStateChanged,
   User as FirebaseUser
 } from "firebase/auth";
-import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where, getDocs, Timestamp, writeBatch } from "firebase/firestore";
+import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where, getDocs, Timestamp, writeBatch, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
 import { ref as rtdbRef, onValue, push, serverTimestamp as rtdbServerTimestamp, off } from "firebase/database";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -50,9 +57,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
 
 // --- Data Types ---
 type ChatMessage = {
+  id: string;
   type: 'user' | 'ai';
   content: string;
   suggestions?: string[];
@@ -68,7 +79,9 @@ type Community = {
   name: string;
   description: string;
   ownerId: string;
+  imageUrl: string;
   createdAt: Timestamp;
+  members: string[];
 };
 
 type EmailMessage = {
@@ -100,7 +113,86 @@ type AppUser = {
   photoURL?: string;
 };
 
-type ActiveTab = 'chat' | 'communities' | 'messages' | 'settings';
+type SharedFile = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  url: string;
+  ownerId: string;
+  createdAt: Timestamp;
+  summary?: string;
+};
+
+type ActiveTab = 'chat' | 'communities' | 'files' | 'messages' | 'settings';
+
+// --- Global Audio Player ---
+const AudioPlayerContext = React.createContext<{
+  playAudio: (src: string, id: string) => void;
+  stopAudio: () => void;
+  currentlyPlaying: string | null;
+}>({
+  playAudio: () => {},
+  stopAudio: () => {},
+  currentlyPlaying: null,
+});
+
+const AudioPlayerProvider = ({ children }: { children: React.ReactNode }) => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      audioRef.current = new Audio();
+      const player = audioRef.current;
+      const onEnded = () => setCurrentlyPlaying(null);
+      player.addEventListener('ended', onEnded);
+      player.addEventListener('pause', onEnded);
+      return () => {
+        player.removeEventListener('ended', onEnded);
+        player.removeEventListener('pause', onEnded);
+        player.pause();
+      };
+    }
+  }, []);
+
+  const playAudio = useCallback((src: string, id: string) => {
+    const player = audioRef.current;
+    if (!player) return;
+
+    if (currentlyPlaying === id) {
+      player.pause();
+      setCurrentlyPlaying(null);
+    } else {
+      player.src = src;
+      player.play().catch(e => {
+        if (e.name !== 'AbortError') {
+          console.error("Error playing audio:", e);
+        }
+      });
+      setCurrentlyPlaying(id);
+    }
+  }, [currentlyPlaying]);
+
+  const stopAudio = useCallback(() => {
+    audioRef.current?.pause();
+    setCurrentlyPlaying(null);
+  }, []);
+
+  return (
+    <AudioPlayerContext.Provider value={{ playAudio, stopAudio, currentlyPlaying }}>
+      {children}
+    </AudioPlayerContext.Provider>
+  );
+};
+
+const useAudioPlayer = () => {
+  const context = useContext(AudioPlayerContext);
+  if (!context) {
+    throw new Error('useAudioPlayer must be used within an AudioPlayerProvider');
+  }
+  return context;
+};
 
 // --- Authentication ---
 const AuthForm = () => {
@@ -113,7 +205,6 @@ const AuthForm = () => {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
       
-      // Save user to Firestore
       const userRef = doc(db, 'users', user.uid);
       await setDoc(userRef, {
         uid: user.uid,
@@ -153,17 +244,25 @@ const AuthForm = () => {
 const ChatMessageDisplay = React.memo(
   ({
     message,
-    isPlaying,
-    onPlayAudio,
-    onCopy,
     onLike,
   }: {
     message: ChatMessage;
-    isPlaying: boolean;
-    onPlayAudio: () => void;
-    onCopy: (text: string) => void;
     onLike: () => void;
   }) => {
+    const { playAudio, currentlyPlaying } = useAudioPlayer();
+    const { toast } = useToast();
+
+    const isPlaying = currentlyPlaying === message.id;
+
+    const handleCopy = useCallback((text: string) => {
+        navigator.clipboard.writeText(text).then(() => {
+          toast({
+            title: 'Copié',
+            description: 'Le texte a été copié dans le presse-papiers.',
+          });
+        });
+      }, [toast]);
+      
     return (
       <div className={`flex items-start gap-4 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
          {message.type === 'ai' && <Avatar className="w-8 h-8"><AvatarFallback><Brain size={18}/></AvatarFallback></Avatar> }
@@ -229,11 +328,11 @@ const ChatMessageDisplay = React.memo(
                 </Accordion>
               <div className="flex items-center gap-2 mt-2">
                 {message.audioDataUri && (
-                  <Button variant="ghost" size="icon" onClick={onPlayAudio} className="h-8 w-8">
+                  <Button variant="ghost" size="icon" onClick={() => playAudio(message.audioDataUri!, message.id)} className="h-8 w-8">
                       {isPlaying ? <Pause size={16}/> : <Volume2 size={16}/>}
                   </Button>
                 )}
-                <Button variant="ghost" size="icon" onClick={() => onCopy(message.content)} className="h-8 w-8"> <Copy size={16}/> </Button>
+                <Button variant="ghost" size="icon" onClick={() => handleCopy(message.content)} className="h-8 w-8"> <Copy size={16}/> </Button>
                 <Button variant="ghost" size="icon" onClick={onLike} className={`h-8 w-8 ${message.liked ? 'text-red-500' : ''}`}>
                    <ThumbsUp size={16}/>
                 </Button>
@@ -255,43 +354,7 @@ const ChatInterface = ({currentUser}: {currentUser: FirebaseUser}) => {
   const [isLoading, setIsLoading] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
-  
-  const audioPlayer = useRef<HTMLAudioElement | null>(null);
-  const [audioStatus, setAudioStatus] = useState<{ playingIndex: number }>({ playingIndex: -1 });
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-        audioPlayer.current = new Audio();
-        const player = audioPlayer.current;
-        const onEnded = () => setAudioStatus({ playingIndex: -1 });
-        player.addEventListener('ended', onEnded);
-        player.addEventListener('pause', onEnded);
-        return () => {
-            player.removeEventListener('ended', onEnded);
-            player.removeEventListener('pause', onEnded);
-            player.pause();
-        };
-    }
-  }, []);
-
-  const handlePlayAudio = useCallback((index: number, audioDataUri: string) => {
-      const player = audioPlayer.current;
-      if (!player) return;
-
-      if (audioStatus.playingIndex === index) {
-          player.pause();
-          setAudioStatus({ playingIndex: -1 });
-      } else {
-          player.src = audioDataUri;
-          player.play().catch(e => {
-            if (e.name !== 'AbortError') {
-              console.error("Error playing audio:", e)
-              toast({ variant: 'destructive', title: "Erreur audio", description: "Impossible de lire le fichier audio."})
-            }
-          });
-          setAudioStatus({ playingIndex: index });
-      }
-  }, [audioStatus.playingIndex, toast]);
+  let messageIdCounter = 0;
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -305,7 +368,7 @@ const ChatInterface = ({currentUser}: {currentUser: FirebaseUser}) => {
     
     setIsLoading(true);
     const currentText = userText;
-    const userMessage: ChatMessage = { type: 'user', content: currentText, timestamp: new Date() };
+    const userMessage: ChatMessage = { id: `user-${messageIdCounter++}`, type: 'user', content: currentText, timestamp: new Date() };
     setChatHistory(prev => [...prev, userMessage]);
     setUserText('');
 
@@ -314,6 +377,7 @@ const ChatInterface = ({currentUser}: {currentUser: FirebaseUser}) => {
       const audioResult = await textToSpeech({ text: aiData.explanation });
       
       const aiMessage: ChatMessage = {
+        id: `ai-${messageIdCounter++}`,
         type: 'ai',
         content: aiData.explanation,
         suggestions: aiData.suggestions,
@@ -328,6 +392,7 @@ const ChatInterface = ({currentUser}: {currentUser: FirebaseUser}) => {
     } catch (error) {
       console.error('Erreur IA:', error);
       const errorMessage: ChatMessage = {
+        id: `error-${messageIdCounter++}`,
         type: 'ai',
         content: 'Désolé, je rencontre des difficultés techniques. Veuillez réessayer.',
         timestamp: new Date()
@@ -343,19 +408,10 @@ const ChatInterface = ({currentUser}: {currentUser: FirebaseUser}) => {
     toast({ title: 'Nouvelle discussion', description: 'La conversation a été réinitialisée.' });
   };
 
-  const handleCopy = useCallback((text: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      toast({
-        title: 'Copié',
-        description: 'Le texte a été copié dans le presse-papiers.',
-      });
-    });
-  }, [toast]);
-
-  const handleLike = useCallback((index: number) => {
+  const handleLike = useCallback((id: string) => {
     setChatHistory(prev =>
-      prev.map((message, i) => {
-        if (i === index && message.type === 'ai') {
+      prev.map((message) => {
+        if (message.id === id && message.type === 'ai') {
           return { ...message, liked: !message.liked };
         }
         return message;
@@ -374,18 +430,11 @@ const ChatInterface = ({currentUser}: {currentUser: FirebaseUser}) => {
               <p>Tapez votre texte et recevez des suggestions intelligentes.</p>
           </div>
         ) : (
-          chatHistory.map((message, index) => (
-            <div key={index}>
+          chatHistory.map((message) => (
+            <div key={message.id}>
               <ChatMessageDisplay
                 message={message}
-                isPlaying={audioStatus.playingIndex === index}
-                onPlayAudio={() => {
-                  if (message.audioDataUri) {
-                      handlePlayAudio(index, message.audioDataUri);
-                  }
-                }}
-                onCopy={() => handleCopy(message.content)}
-                onLike={() => handleLike(index)}
+                onLike={() => handleLike(message.id)}
               />
             </div>
           ))
@@ -432,81 +481,127 @@ const ChatInterface = ({currentUser}: {currentUser: FirebaseUser}) => {
 
 // --- Communities Components ---
 const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: FirebaseUser, onEnterCommunity: (community: Community) => void }) => {
-  const [communities, setCommunities] = useState<Community[]>([]);
-  const [isCreateCommunityOpen, setIsCreateCommunityOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const { toast } = useToast();
+    const [communities, setCommunities] = useState<Community[]>([]);
+    const [myCommunities, setMyCommunities] = useState<Community[]>([]);
+    const [isCreateCommunityOpen, setIsCreateCommunityOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const { toast } = useToast();
 
-  useEffect(() => {
-    const q = query(collection(db, "communities"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const communitiesData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Community[];
-      setCommunities(communitiesData);
-    }, (error) => {
-      console.error("Erreur de lecture des communautés:", error);
-      toast({
-        variant: "destructive",
-        title: "Erreur de base de données",
-        description: "Impossible de charger les communautés. Vérifiez les permissions.",
-      });
-    });
-    return () => unsubscribe();
-  }, [toast]);
-  
-  const filteredCommunities = communities.filter(community =>
-    community.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-  
-  return (
-    <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto">
-      <header className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">Communautés</h2>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Rechercher..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 w-64 bg-background"
-            />
-          </div>
-          <Button onClick={() => setIsCreateCommunityOpen(true)}>
-            <Plus size={16} className="mr-2" />
-            Créer
-          </Button>
-        </div>
-      </header>
+    useEffect(() => {
+        const q = query(collection(db, "communities"), orderBy("createdAt", "desc"));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const allCommunities = querySnapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+            })) as Community[];
+            setCommunities(allCommunities.filter(c => c.ownerId !== currentUser.uid));
+            setMyCommunities(allCommunities.filter(c => c.ownerId === currentUser.uid));
+        }, (error) => {
+            console.error("Erreur de lecture des communautés:", error);
+            toast({
+                variant: "destructive",
+                title: "Erreur de base de données",
+                description: "Impossible de charger les communautés. Vérifiez les permissions.",
+            });
+        });
+        return () => unsubscribe();
+    }, [currentUser.uid, toast]);
 
-      {filteredCommunities.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {filteredCommunities.map(community => (
-            <div key={community.id} className="bg-background dark:bg-gray-800 p-4 rounded-lg shadow-sm flex flex-col items-center text-center cursor-pointer hover:shadow-md transition-shadow" onClick={() => onEnterCommunity(community)}>
-              <Avatar className="w-20 h-20 mb-4">
-                <AvatarImage src={`https://placehold.co/150x150.png?text=${community.name.charAt(0)}`} data-ai-hint={community.name} />
-                <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
-              </Avatar>
-              <p className="font-semibold">{community.name}</p>
-              <p className="text-sm text-muted-foreground line-clamp-2">{community.description}</p>
-            </div>
-          ))}
+    const handleSubscription = async (communityId: string, isMember: boolean) => {
+      const communityRef = doc(db, 'communities', communityId);
+      try {
+        await updateDoc(communityRef, {
+          members: isMember 
+            ? arrayRemove(currentUser.uid) 
+            : arrayUnion(currentUser.uid),
+        });
+        toast({
+          title: isMember ? 'Désabonnement réussi' : 'Abonnement réussi',
+        });
+      } catch (error) {
+        console.error("Erreur d'abonnement:", error);
+        toast({ variant: 'destructive', title: 'Erreur', description: "L'opération a échoué." });
+      }
+    };
+
+    const filteredCommunities = communities.filter(community =>
+        community.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    return (
+        <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto">
+            <header className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold">Communautés</h2>
+                <div className="flex items-center gap-2">
+                    <div className="relative">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            type="search"
+                            placeholder="Rechercher..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="pl-8 w-64 bg-background"
+                        />
+                    </div>
+                    <Button onClick={() => setIsCreateCommunityOpen(true)}>
+                        <Plus size={16} className="mr-2" />
+                        Créer
+                    </Button>
+                </div>
+            </header>
+
+            {myCommunities.length > 0 && (
+                <div className="mb-8">
+                    <h3 className="text-xl font-semibold mb-4">Mes communautés</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+                        {myCommunities.map(community => (
+                            <div key={community.id} onClick={() => onEnterCommunity(community)} className="group relative flex flex-col items-center text-center cursor-pointer">
+                                <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
+                                    <AvatarImage src={community.imageUrl} />
+                                    <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <p className="font-semibold">{community.name}</p>
+                            </div>
+                        ))}
+                    </div>
+                    <Separator className="mt-8"/>
+                </div>
+            )}
+            
+            <h3 className="text-xl font-semibold mb-4">Découvrir</h3>
+            {filteredCommunities.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-8">
+                    {filteredCommunities.map(community => {
+                        const isMember = community.members.includes(currentUser.uid);
+                        return (
+                            <div key={community.id} className="group relative flex flex-col items-center text-center">
+                                <div onClick={() => onEnterCommunity(community)} className="cursor-pointer">
+                                    <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
+                                        <AvatarImage src={community.imageUrl} />
+                                        <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
+                                    </Avatar>
+                                </div>
+                                <button onClick={() => handleSubscription(community.id, isMember)} className="absolute top-0 right-0 -mt-1 -mr-1 bg-background rounded-full p-1 shadow-md hover:scale-110 transition-transform">
+                                  {isMember ? <CheckCircle2 size={24} className="text-green-500" /> : <PlusCircle size={24} className="text-primary"/>}
+                                </button>
+                                <p className="font-semibold">{community.name}</p>
+                                <p className="text-sm text-muted-foreground line-clamp-2">{community.description}</p>
+                            </div>
+                        )
+                    })}
+                </div>
+            ) : (
+                <div className="text-center text-muted-foreground py-10">
+                    <div className="inline-block p-4 bg-background rounded-full">
+                        <Users size={32} />
+                    </div>
+                    <h3 className="mt-4 text-lg font-semibold">Aucune communauté à découvrir</h3>
+                    <p className="text-sm">Revenez plus tard ou créez la vôtre !</p>
+                </div>
+            )}
+            <CreateCommunityDialog isOpen={isCreateCommunityOpen} onOpenChange={setIsCreateCommunityOpen} currentUser={currentUser} />
         </div>
-      ) : (
-        <div className="text-center text-muted-foreground py-10">
-          <div className="inline-block p-4 bg-background rounded-full">
-            <Users size={32} />
-          </div>
-          <h3 className="mt-4 text-lg font-semibold">Aucune communauté à découvrir</h3>
-          <p className="text-sm">Revenez plus tard ou créez la vôtre !</p>
-        </div>
-      )}
-      <CreateCommunityDialog isOpen={isCreateCommunityOpen} onOpenChange={setIsCreateCommunityOpen} currentUser={currentUser} />
-    </div>
-  );
+    );
 };
 
 const CreateCommunityDialog = ({ isOpen, onOpenChange, currentUser }: { isOpen: boolean, onOpenChange: (open: boolean) => void, currentUser: FirebaseUser | null }) => {
@@ -540,11 +635,16 @@ const CreateCommunityDialog = ({ isOpen, onOpenChange, currentUser }: { isOpen: 
       }
       setIsCreating(true);
       try {
+          // Utiliser une image placeholder statique car la génération d'image a été retirée
+          const placeholderImageUrl = `https://placehold.co/200x200.png?text=${name.charAt(0)}`;
+          
           await addDoc(collection(db, 'communities'), {
               name,
               description,
               ownerId: currentUser.uid,
               createdAt: serverTimestamp(),
+              imageUrl: placeholderImageUrl,
+              members: [currentUser.uid], // Le créateur est automatiquement membre
           });
           
           toast({ title: "Communauté créée", description: `La communauté "${name}" a été créée avec succès.` });
@@ -594,6 +694,7 @@ const CreateCommunityDialog = ({ isOpen, onOpenChange, currentUser }: { isOpen: 
     </Dialog>
   );
 };
+
 
 const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Community, onBack: () => void, currentUser: FirebaseUser }) => {
   const [messages, setMessages] = useState<CommunityMessage[]>([]);
@@ -653,7 +754,7 @@ const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Comm
       <header className="flex items-center gap-4 p-4 border-b bg-background dark:bg-gray-900/50">
         <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft size={18} /></Button>
         <Avatar className="w-10 h-10">
-          <AvatarImage src={`https://placehold.co/150x150.png?text=${community.name.charAt(0)}`} data-ai-hint={community.name} />
+          <AvatarImage src={community.imageUrl} />
           <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
         </Avatar>
         <h2 className="text-xl font-bold">{community.name}</h2>
@@ -695,8 +796,8 @@ const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Comm
   );
 };
 
-// --- Messages (Inbox-style) Components ---
 
+// --- Messages (Inbox-style) Components ---
 const NewMessageDialog = ({ isOpen, onOpenChange, currentUser, users }: { isOpen: boolean, onOpenChange: (open: boolean) => void, currentUser: FirebaseUser, users: AppUser[] }) => {
     const [recipientUid, setRecipientUid] = useState('');
     const [subject, setSubject] = useState('');
@@ -850,6 +951,7 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
     const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
     const [filter, setFilter] = useState<'inbox' | 'sent' | 'unread'>('inbox');
     const [isComposing, setIsComposing] = useState(false);
+    const [fetchError, setFetchError] = useState<string | null>(null);
     const { toast } = useToast();
 
     useEffect(() => {
@@ -866,6 +968,7 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
         const q = query(messagesRef, where('participantUids', 'array-contains', currentUser.uid), orderBy('timestamp', 'desc'));
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
+            setFetchError(null);
             const fetchedMessages = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
@@ -873,6 +976,11 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
             setMessages(fetchedMessages);
         }, (error) => {
             console.error("Error fetching messages:", error);
+            if (error.code === 'permission-denied') {
+                setFetchError("Erreur de permissions. Veuillez vérifier vos règles de sécurité Firestore et les mettre à jour pour autoriser la lecture des messages si l'utilisateur fait partie des 'participantUids'.");
+            } else {
+                setFetchError('Impossible de charger les messages.');
+            }
             toast({ variant: 'destructive', title: 'Erreur', description: 'Impossible de charger les messages.' });
         });
 
@@ -915,7 +1023,9 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
                 </div>
                 <Separator />
                 <div className="flex-1 overflow-y-auto">
-                    {filteredMessages.length > 0 ? (
+                    {fetchError ? (
+                        <div className="p-4 text-center text-sm text-destructive">{fetchError}</div>
+                    ) : filteredMessages.length > 0 ? (
                         filteredMessages.map(msg => (
                             <MessageListItem 
                                 key={msg.id} 
@@ -940,6 +1050,21 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
             </div>
             <NewMessageDialog isOpen={isComposing} onOpenChange={setIsComposing} currentUser={currentUser} users={users} />
         </div>
+    );
+};
+
+// --- Files Tab ---
+const FilesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
+    // This tab is now a placeholder as per the new requirements.
+    // The functionality is integrated into messaging.
+    return (
+      <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto items-center justify-center text-center">
+          <FileText size={48} className="text-muted-foreground mb-4"/>
+          <h2 className="text-2xl font-bold">Partage de Fichiers</h2>
+          <p className="text-muted-foreground max-w-md">
+            La fonctionnalité de partage de fichiers est maintenant intégrée directement dans les messages privés et les salons de communauté. Vous pouvez partager des liens vers vos fichiers (PDF, DOC, etc.) directement dans vos conversations.
+          </p>
+      </div>
     );
 };
   
@@ -1003,6 +1128,7 @@ const FicheApp = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [activeCommunityChat, setActiveCommunityChat] = useState<Community | null>(null);
   const { toast } = useToast();
+  const { useContext } = React;
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -1058,64 +1184,85 @@ const FicheApp = () => {
     return <AuthForm />;
   }
   
+  const handleEnterCommunity = (community: Community) => {
+    if (community.members.includes(currentUser.uid)) {
+      setActiveCommunityChat(community);
+    } else {
+      toast({
+        variant: 'destructive',
+        title: 'Accès refusé',
+        description: 'Vous devez être membre pour entrer dans ce salon.',
+      });
+    }
+  };
+  
   if (activeCommunityChat) {
     return <CommunityChatRoom community={activeCommunityChat} onBack={() => setActiveCommunityChat(null)} currentUser={currentUser} />;
   }
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
-      <aside className="w-64 flex flex-col bg-white dark:bg-gray-900 border-r border-border p-4">
-        <div className="flex items-center gap-2 mb-8">
-          <div className="p-2 bg-primary/10 rounded-lg">
-            <Brain size={24} className="text-primary"/>
-          </div>
-          <h1 className="text-2xl font-bold font-headline text-primary">FICHE</h1>
-        </div>
-        <nav className="flex-1 space-y-2">
-          <Button variant={activeTab === 'chat' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('chat')}>
-            <MessageCircle size={18} className="mr-3"/>
-            Chat IA
-          </Button>
-          <Button variant={activeTab === 'communities' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('communities')}>
-            <Users size={18} className="mr-3"/>
-            Communautés
-          </Button>
-          <Button variant={activeTab === 'messages' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('messages')}>
-            <Mail size={18} className="mr-3"/>
-            Messages
-          </Button>
-          <Button variant={activeTab === 'settings' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('settings')}>
-            <Settings size={18} className="mr-3"/>
-            Paramètres
-          </Button>
-        </nav>
-        <div className="mt-auto">
-          <Separator className="my-4"/>
-          <div className="flex items-center gap-3">
-             <Avatar>
-              <AvatarImage src={currentUser?.photoURL || ''} />
-              <AvatarFallback>{currentUser?.displayName?.charAt(0) || 'U'}</AvatarFallback>
-            </Avatar>
-            <div className="flex-1 truncate">
-              <p className="font-semibold truncate">{currentUser?.displayName || 'Utilisateur'}</p>
-              <p className="text-sm text-muted-foreground truncate">{currentUser?.email}</p>
+    <AudioPlayerProvider>
+      <div className="flex h-screen bg-background text-foreground">
+        <aside className="w-64 flex flex-col bg-white dark:bg-gray-900 border-r border-border p-4">
+          <div className="flex items-center gap-2 mb-8">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <Brain size={24} className="text-primary"/>
             </div>
-            <Button variant="ghost" size="icon" onClick={handleLogout} className="flex-shrink-0">
-                <LogOut size={18}/>
-                <span className="sr-only">Déconnexion</span>
-            </Button>
+            <h1 className="text-2xl font-bold font-headline text-primary">FICHE</h1>
           </div>
-        </div>
-      </aside>
+          <nav className="flex-1 space-y-2">
+            <Button variant={activeTab === 'chat' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('chat')}>
+              <MessageCircle size={18} className="mr-3"/>
+              Chat IA
+            </Button>
+            <Button variant={activeTab === 'communities' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('communities')}>
+              <Users size={18} className="mr-3"/>
+              Communautés
+            </Button>
+             <Button variant={activeTab === 'files' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('files')}>
+              <FileText size={18} className="mr-3"/>
+              Fichiers
+            </Button>
+            <Button variant={activeTab === 'messages' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('messages')}>
+              <Mail size={18} className="mr-3"/>
+              Messages
+            </Button>
+            <Button variant={activeTab === 'settings' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('settings')}>
+              <Settings size={18} className="mr-3"/>
+              Paramètres
+            </Button>
+          </nav>
+          <div className="mt-auto">
+            <Separator className="my-4"/>
+            <div className="flex items-center gap-3">
+               <Avatar>
+                <AvatarImage src={currentUser?.photoURL || ''} />
+                <AvatarFallback>{currentUser?.displayName?.charAt(0) || 'U'}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 truncate">
+                <p className="font-semibold truncate">{currentUser?.displayName || 'Utilisateur'}</p>
+                <p className="text-sm text-muted-foreground truncate">{currentUser?.email}</p>
+              </div>
+              <Button variant="ghost" size="icon" onClick={handleLogout} className="flex-shrink-0">
+                  <LogOut size={18}/>
+                  <span className="sr-only">Déconnexion</span>
+              </Button>
+            </div>
+          </div>
+        </aside>
 
-      <main className="flex-1 flex flex-col">
-        {activeTab === 'chat' && <ChatInterface currentUser={currentUser} />}
-        {activeTab === 'communities' && <CommunitiesTab currentUser={currentUser} onEnterCommunity={setActiveCommunityChat} />}
-        {activeTab === 'messages' && <MessagesTab currentUser={currentUser}/>}
-        {activeTab === 'settings' && <SettingsTab theme={theme} setTheme={setTheme} currentUser={currentUser} />}
-      </main>
-    </div>
+        <main className="flex-1 flex flex-col">
+          {activeTab === 'chat' && <ChatInterface currentUser={currentUser} />}
+          {activeTab === 'communities' && <CommunitiesTab currentUser={currentUser} onEnterCommunity={handleEnterCommunity} />}
+          {activeTab === 'files' && <FilesTab currentUser={currentUser}/>}
+          {activeTab === 'messages' && <MessagesTab currentUser={currentUser}/>}
+          {activeTab === 'settings' && <SettingsTab theme={theme} setTheme={setTheme} currentUser={currentUser} />}
+        </main>
+      </div>
+    </AudioPlayerProvider>
   );
 };
 
 export default FicheApp;
+
+    
