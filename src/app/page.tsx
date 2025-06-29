@@ -16,7 +16,6 @@ import {
   LogOut,
   Sparkles,
   Brain,
-  Upload,
   Download,
   Share2,
   Volume2,
@@ -26,16 +25,16 @@ import {
   RotateCw,
   Check,
   Edit,
-  Info
+  Info,
+  ArrowLeft,
+  Paperclip
 } from 'lucide-react';
 import { analyzeText } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
-import { generateCommunityImage } from '@/ai/flows/generate-community-image';
-import { summarizeDocument } from '@/ai/flows/summarize-document';
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
-import { auth, db, storage } from '@/lib/firebase';
+import { auth, db, rtdb } from '@/lib/firebase';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -44,15 +43,15 @@ import {
   updateProfile,
   User as FirebaseUser
 } from "firebase/auth";
-import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, arrayUnion, arrayRemove, where } from "firebase/firestore";
-import { ref as storageRef, uploadBytes, getDownloadURL, uploadString } from "firebase/storage";
+import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where, getDocs, Timestamp } from "firebase/firestore";
+import { ref as rtdbRef, onValue, push, serverTimestamp as rtdbServerTimestamp, off } from "firebase/database";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from '@/components/ui/separator';
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type ChatMessage = {
   type: 'user' | 'ai';
@@ -68,27 +67,54 @@ type ChatMessage = {
 type Community = {
   id: string;
   name: string;
-  members: string[];
   description: string;
-  imageUrl: string;
   ownerId: string;
-  dataAiHint: string;
-  subscribed: boolean;
+  createdAt: Timestamp;
 };
 
-type FileInfo = {
+type PrivateMessage = {
   id: string;
-  name: string;
-  size: number;
-  date: { toDate: () => Date };
-  author: string;
-  url: string;
-  ownerId: string;
-  summary: string;
-  type: string;
+  type: 'text' | 'file';
+  from: string;
+  to: string;
+  content?: string;
+  fileUrl?: string;
+  fileName?: string;
+  timestamp: Timestamp;
 };
 
-type ActiveTab = 'chat' | 'communities' | 'files' | 'messages' | 'settings';
+type CommunityMessage = {
+  id: string;
+  from: string;
+  fromName: string;
+  content: string;
+  timestamp: number;
+};
+
+type AppUser = {
+  uid: string;
+  name: string;
+  email: string;
+};
+
+type ActiveTab = 'chat' | 'communities' | 'messages' | 'settings';
+
+function isValidFileUrl(url: string) {
+  try {
+    const newUrl = new URL(url);
+    return newUrl.protocol === "https:" && (
+      newUrl.pathname.endsWith(".pdf") || 
+      newUrl.pathname.endsWith(".docx") || 
+      newUrl.pathname.endsWith(".xlsx") ||
+      newUrl.pathname.endsWith(".doc") ||
+      newUrl.pathname.endsWith(".xls") ||
+      newUrl.pathname.endsWith(".ppt") ||
+      newUrl.pathname.endsWith(".pptx")
+    );
+  } catch (e) {
+    return false;
+  }
+}
 
 const AuthForm = () => {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -108,13 +134,12 @@ const AuthForm = () => {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(userCredential.user, { displayName: name });
-
       await setDoc(doc(db, 'users', userCredential.user.uid), {
+        uid: userCredential.user.uid,
         name: name,
         email: email,
-        createdAt: new Date(),
+        createdAt: serverTimestamp(),
       });
-
       toast({ title: 'Compte créé', description: 'Vous êtes maintenant connecté.' });
     } catch (error: any) {
       toast({ variant: 'destructive', title: "Erreur d'inscription", description: error.message });
@@ -204,14 +229,6 @@ const AuthForm = () => {
   );
 };
 
-type ChatMessageItemProps = {
-  message: ChatMessage;
-  isPlaying: boolean;
-  onPlayAudio: () => void;
-  onCopy: (text: string) => void;
-  onLike: () => void;
-};
-
 const ChatMessageDisplay = React.memo(
   ({
     message,
@@ -219,7 +236,13 @@ const ChatMessageDisplay = React.memo(
     onPlayAudio,
     onCopy,
     onLike,
-  }: ChatMessageItemProps) => {
+  }: {
+    message: ChatMessage;
+    isPlaying: boolean;
+    onPlayAudio: () => void;
+    onCopy: (text: string) => void;
+    onLike: () => void;
+  }) => {
     return (
       <div className={`flex items-start gap-4 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
          {message.type === 'ai' && <Avatar className="w-8 h-8"><AvatarFallback><Brain size={18}/></AvatarFallback></Avatar> }
@@ -313,80 +336,33 @@ const FicheApp = () => {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [communities, setCommunities] = useState<Community[]>([]);
-  const [files, setFiles] = useState<FileInfo[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const [viewingSummary, setViewingSummary] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  const [activeCommunityChat, setActiveCommunityChat] = useState<Community | null>(null);
+  const [activePrivateChat, setActivePrivateChat] = useState<AppUser | null>(null);
 
   const audioPlayer = useRef<HTMLAudioElement | null>(null);
   const [audioStatus, setAudioStatus] = useState<{ playingIndex: number }>({ playingIndex: -1 });
 
   useEffect(() => {
-    if (!currentUser) {
-      setCommunities([]);
-      return;
-    }
+    if (!currentUser) return;
 
     const q = query(collection(db, "communities"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const communitiesData = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-        subscribed: doc.data().members?.includes(currentUser.uid)
       })) as Community[];
       setCommunities(communitiesData);
-    },
-    (error) => {
-      console.error("Erreur de lecture des communautés:", error);
-      if (error.code === 'permission-denied') {
-        toast({
-          variant: "destructive",
-          title: "Accès refusé",
-          description: "Impossible de charger les communautés. Vérifiez les règles de sécurité de Firestore pour autoriser la lecture.",
-        });
-      } else {
-          toast({
-          variant: "destructive",
-          title: "Erreur de base de données",
-          description: "Impossible de charger les communautés.",
-        });
-      }
-    });
-
-    return () => unsubscribe();
-  }, [currentUser, toast]);
-
-  useEffect(() => {
-    if (!currentUser) {
-        setFiles([]);
-        return;
-    }
-
-    const q = query(collection(db, "files"), where("ownerId", "==", currentUser.uid), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-        const filesData = querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-        })) as FileInfo[];
-        setFiles(filesData);
     }, (error) => {
-        console.error("Erreur de lecture des fichiers:", error);
-        if (error.code === 'permission-denied') {
-            toast({
-                variant: "destructive",
-                title: "Accès refusé",
-                description: "Impossible de charger vos fichiers. Vos règles de sécurité Firestore empêchent l'accès.",
-            });
-        } else {
-            toast({
-                variant: "destructive",
-                title: "Erreur de base de données",
-                description: "Impossible de charger les fichiers.",
-            });
-        }
+      console.error("Erreur de lecture des communautés:", error);
+      toast({
+        variant: "destructive",
+        title: "Erreur de base de données",
+        description: "Impossible de charger les communautés. Vérifiez les permissions.",
+      });
     });
 
     return () => unsubscribe();
@@ -397,12 +373,9 @@ const FicheApp = () => {
     if (typeof window !== 'undefined') {
         audioPlayer.current = new Audio();
         const player = audioPlayer.current;
-
         const onEnded = () => setAudioStatus({ playingIndex: -1 });
-
         player.addEventListener('ended', onEnded);
         player.addEventListener('pause', onEnded);
-
         return () => {
             player.removeEventListener('ended', onEnded);
             player.removeEventListener('pause', onEnded);
@@ -434,6 +407,10 @@ const FicheApp = () => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user as FirebaseUser | null);
+      if (!user) {
+        setActiveCommunityChat(null);
+        setActivePrivateChat(null);
+      }
       setIsAuthenticating(false);
     });
     return () => unsubscribe();
@@ -536,70 +513,6 @@ const FicheApp = () => {
     );
   }, []);
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!event.target.files || event.target.files.length === 0 || !currentUser) return;
-
-    const file = event.target.files[0];
-    setIsUploading(true);
-    toast({ title: 'Importation en cours...', description: `Le fichier "${file.name}" est en cours de traitement.` });
-
-    try {
-        const reader = new FileReader();
-        const dataUriPromise = new Promise<string>((resolve, reject) => {
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = (error) => reject(error);
-            reader.readAsDataURL(file);
-        });
-        const documentDataUri = await dataUriPromise;
-
-        let summary = "Le résumé n'est pas disponible pour ce type de fichier.";
-        if (file.type.startsWith('application/pdf') || file.type.startsWith('text/')) {
-             try {
-                const summaryResult = await summarizeDocument({ documentDataUri });
-                summary = summaryResult.summary;
-             } catch (aiError) {
-                console.error("AI summarization failed:", aiError);
-                summary = "La génération du résumé par l'IA a échoué.";
-             }
-        }
-
-        const fileStorageRef = storageRef(storage, `files/${currentUser.uid}/${Date.now()}-${file.name}`);
-        await uploadBytes(fileStorageRef, file);
-        const downloadURL = await getDownloadURL(fileStorageRef);
-
-        await addDoc(collection(db, 'files'), {
-            name: file.name,
-            size: file.size,
-            type: file.type,
-            url: downloadURL,
-            summary: summary,
-            author: currentUser.displayName || 'Utilisateur inconnu',
-            ownerId: currentUser.uid,
-            createdAt: serverTimestamp(),
-        });
-        
-        toast({ title: 'Fichier importé', description: `"${file.name}" a été importé et analysé avec succès.` });
-
-    } catch (error) {
-        console.error("File upload failed:", error);
-        toast({ variant: "destructive", title: "Erreur d'importation", description: "Une erreur est survenue." });
-    } finally {
-        setIsUploading(false);
-        if (fileInputRef.current) {
-            fileInputRef.current.value = "";
-        }
-    }
-  };
-
-  function formatBytes(bytes: number, decimals = 2) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-  }
-
   const ChatInterface = () => (
     <div className="flex flex-col h-full bg-muted/40 dark:bg-gray-800/20">
       <div ref={chatContainerRef} className="flex-1 p-6 space-y-6 overflow-y-auto">
@@ -669,85 +582,44 @@ const FicheApp = () => {
   const CommunitiesTab = () => {
     const [isCreateCommunityOpen, setIsCreateCommunityOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-
-    const myCommunities = communities.filter(
-        (community) => community.ownerId === currentUser?.uid
-    );
-    const otherCommunities = communities.filter(
-        (community) => community.ownerId !== currentUser?.uid
-    );
-
-    const filteredOtherCommunities = otherCommunities.filter(community =>
+  
+    const filteredCommunities = communities.filter(community =>
       community.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
-
+  
     return (
       <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto">
         <header className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold">Communautés</h2>
           <div className="flex items-center gap-2">
             <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="search"
-                  placeholder="Rechercher..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 w-64 bg-background"
-                />
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Rechercher..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 w-64 bg-background"
+              />
             </div>
             <Button onClick={() => setIsCreateCommunityOpen(true)}>
-                <Plus size={16} className="mr-2"/>
-                Créer
+              <Plus size={16} className="mr-2" />
+              Créer
             </Button>
           </div>
         </header>
-
-        {myCommunities.length > 0 && (
-          <div className="mb-8">
-            <h3 className="text-lg font-semibold mb-4">Mes communautés</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {myCommunities.map(community => (
-                <div key={community.id} className="text-center group">
-                  <div className="relative w-28 h-28 mx-auto mb-2">
-                    <Image
-                      src={community.imageUrl || `https://placehold.co/112x112.png`}
-                      alt={community.name}
-                      width={112}
-                      height={112}
-                      className="rounded-full object-cover border-4 border-background dark:border-gray-800"
-                      data-ai-hint={community.name}
-                    />
-                     <Button variant="outline" size="icon" className="absolute bottom-0 right-0 h-8 w-8 rounded-full">
-                      <Edit size={14} />
-                    </Button>
-                  </div>
-                  <p className="font-semibold">{community.name}</p>
-                  <p className="text-sm text-muted-foreground">{community.members?.length || 0} membres</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <h3 className="text-lg font-semibold mb-4">Découvrir</h3>
-        {filteredOtherCommunities.length > 0 ? (
+  
+        {filteredCommunities.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {filteredOtherCommunities.map(community => (
-              <div key={community.id} className="text-center group">
-                <div className="relative w-28 h-28 mx-auto mb-2">
-                   <Image
-                      src={community.imageUrl || `https://placehold.co/112x112.png`}
-                      alt={community.name}
-                      width={112}
-                      height={112}
-                      className="rounded-full object-cover border-4 border-background dark:border-gray-800"
-                      data-ai-hint={community.name}
-                    />
-                  </div>
-                  <p className="font-semibold">{community.name}</p>
-                  <p className="text-sm text-muted-foreground">{community.members?.length || 0} membres</p>
-                </div>
+            {filteredCommunities.map(community => (
+              <div key={community.id} className="bg-background dark:bg-gray-800 p-4 rounded-lg shadow-sm flex flex-col items-center text-center cursor-pointer hover:shadow-md transition-shadow" onClick={() => setActiveCommunityChat(community)}>
+                <Avatar className="w-20 h-20 mb-4">
+                  <AvatarImage src={`https://placehold.co/150x150.png?text=${community.name.charAt(0)}`} data-ai-hint={community.name} />
+                  <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <p className="font-semibold">{community.name}</p>
+                <p className="text-sm text-muted-foreground line-clamp-2">{community.description}</p>
+              </div>
             ))}
           </div>
         ) : (
@@ -755,11 +627,11 @@ const FicheApp = () => {
             <div className="inline-block p-4 bg-background rounded-full">
               <Users size={32} />
             </div>
-             <h3 className="mt-4 text-lg font-semibold">Aucune communauté à découvrir</h3>
-             <p className="text-sm">Revenez plus tard ou créez la vôtre !</p>
+            <h3 className="mt-4 text-lg font-semibold">Aucune communauté à découvrir</h3>
+            <p className="text-sm">Revenez plus tard ou créez la vôtre !</p>
           </div>
         )}
-         <CreateCommunityDialog isOpen={isCreateCommunityOpen} onOpenChange={setIsCreateCommunityOpen} currentUser={currentUser} />
+        <CreateCommunityDialog isOpen={isCreateCommunityOpen} onOpenChange={setIsCreateCommunityOpen} currentUser={currentUser} />
       </div>
     );
   };
@@ -769,8 +641,7 @@ const FicheApp = () => {
     const [description, setDescription] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [isCreating, setIsCreating] = useState(false);
-    const { toast } = useToast();
-
+    
     const handleGenerateDescription = async () => {
       if (!name.trim()) {
         toast({ variant: "destructive", title: "Erreur", description: "Veuillez d'abord donner un nom à votre communauté." });
@@ -796,19 +667,10 @@ const FicheApp = () => {
 
         setIsCreating(true);
         try {
-            const imageResult = await generateCommunityImage({ prompt: name });
-            const imageDataUri = imageResult.imageUrl;
-
-            const imageRef = storageRef(storage, `communities/${currentUser.uid}/${name.replace(/\s/g, '_')}-${Date.now()}.png`);
-            await uploadString(imageRef, imageDataUri, 'data_url');
-            const downloadURL = await getDownloadURL(imageRef);
-
             await addDoc(collection(db, 'communities'), {
                 name,
                 description,
-                imageUrl: downloadURL,
                 ownerId: currentUser.uid,
-                members: [currentUser.uid],
                 createdAt: serverTimestamp(),
             });
             
@@ -860,105 +722,277 @@ const FicheApp = () => {
     );
   };
 
-  const FilesTab = () => (
-    <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20">
-      <header className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">Fichiers</h2>
-        <Button onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
-          <Upload size={16} className="mr-2" />
-          {isUploading ? 'Importation...' : 'Importer'}
-        </Button>
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileUpload}
-          className="hidden"
-          accept=".pdf,.doc,.docx,.txt"
-        />
-      </header>
-      {files.length === 0 && !isUploading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-muted-foreground">
-            <div className="inline-block p-4 bg-background rounded-full">
-              <FileText size={32} />
-            </div>
-            <h3 className="mt-4 text-lg font-semibold">Aucun fichier</h3>
-            <p className="text-sm">Importez votre premier document pour commencer.</p>
+  const CommunityChatRoom = ({ community, onBack }: { community: Community, onBack: () => void }) => {
+    const [messages, setMessages] = useState<CommunityMessage[]>([]);
+    const [newMessage, setNewMessage] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+    useEffect(() => {
+      const messagesRef = rtdbRef(rtdb, `communities/${community.id}/messages`);
+      const unsubscribe = onValue(messagesRef, (snapshot) => {
+        const data = snapshot.val();
+        const loadedMessages: CommunityMessage[] = [];
+        if (data) {
+          for (const key in data) {
+            loadedMessages.push({ id: key, ...data[key] });
+          }
+          loadedMessages.sort((a, b) => a.timestamp - b.timestamp);
+        }
+        setMessages(loadedMessages);
+        setIsLoading(false);
+      }, (error) => {
+        console.error(error);
+        toast({ variant: 'destructive', title: 'Erreur', description: 'Impossible de charger les messages du salon.' });
+        setIsLoading(false);
+      });
+  
+      return () => off(messagesRef);
+    }, [community.id]);
+  
+    useEffect(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages]);
+  
+    const handleSendMessage = async () => {
+      if (!newMessage.trim() || !currentUser) return;
+  
+      const messageData = {
+        from: currentUser.uid,
+        fromName: currentUser.displayName || 'Anonyme',
+        content: newMessage,
+        timestamp: rtdbServerTimestamp(),
+      };
+  
+      try {
+        const messagesRef = rtdbRef(rtdb, `communities/${community.id}/messages`);
+        await push(messagesRef, messageData);
+        setNewMessage('');
+      } catch (error) {
+        console.error("Error sending message:", error);
+        toast({ variant: 'destructive', title: 'Erreur', description: "L'envoi du message a échoué." });
+      }
+    };
+  
+    return (
+      <div className="h-full flex flex-col bg-muted/40 dark:bg-gray-800/20">
+        <header className="flex items-center gap-4 p-4 border-b bg-background dark:bg-gray-900/50">
+          <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft size={18} /></Button>
+          <Avatar className="w-10 h-10">
+            <AvatarImage src={`https://placehold.co/150x150.png?text=${community.name.charAt(0)}`} data-ai-hint={community.name} />
+            <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
+          </Avatar>
+          <h2 className="text-xl font-bold">{community.name}</h2>
+        </header>
+        <div className="flex-1 p-6 space-y-4 overflow-y-auto">
+          {isLoading ? (
+            <div className="text-center text-muted-foreground">Chargement des messages...</div>
+          ) : messages.length === 0 ? (
+            <div className="text-center text-muted-foreground">Aucun message. Soyez le premier !</div>
+          ) : (
+            messages.map((msg) => (
+              <div key={msg.id} className={`flex items-end gap-2 ${msg.from === currentUser?.uid ? 'justify-end' : 'justify-start'}`}>
+                {msg.from !== currentUser?.uid && <Avatar className="w-8 h-8 self-start"><AvatarFallback>{msg.fromName.charAt(0)}</AvatarFallback></Avatar>}
+                <div className={`max-w-md rounded-xl px-4 py-2 ${msg.from === currentUser?.uid ? 'bg-primary text-primary-foreground' : 'bg-background dark:bg-gray-800'}`}>
+                  {msg.from !== currentUser?.uid && <div className="text-xs font-bold text-primary mb-1">{msg.fromName}</div>}
+                  <p>{msg.content}</p>
+                  <p className="text-xs opacity-70 mt-1 text-right">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                </div>
+              </div>
+            ))
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+        <div className="p-4 bg-background dark:bg-gray-900/50 border-t">
+          <div className="relative flex items-center gap-2">
+            <Input
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Écrire un message..."
+              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+              className="bg-muted dark:bg-gray-800"
+            />
+            <Button onClick={handleSendMessage} disabled={!newMessage.trim()} size="icon">
+              <Send size={18} />
+            </Button>
           </div>
         </div>
-      ) : (
-        <div className="space-y-4 overflow-y-auto">
-          {files.map(file => (
-            <div key={file.id} className="bg-background dark:bg-gray-800 rounded-lg p-4 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4 min-w-0">
-                <div className="p-3 bg-primary/10 rounded-lg flex-shrink-0">
-                  <FileText className="text-primary" />
-                </div>
-                <div className="truncate">
-                  <p className="font-semibold truncate">{file.name}</p>
-                  <p className="text-sm text-muted-foreground truncate">
-                    {formatBytes(file.size)} • {file.date?.toDate().toLocaleDateString('fr-FR')} • {file.author}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <a href={file.url} target="_blank" rel="noopener noreferrer">
-                  <Button variant="ghost" size="icon"><Download size={18} /></Button>
-                </a>
-                <Button variant="ghost" size="icon" onClick={() => {
-                  navigator.clipboard.writeText(file.url);
-                  toast({ title: 'Lien copié !' });
-                }}>
-                  <Share2 size={18} />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => setViewingSummary(file.summary)}>
-                  <Info size={18} />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-       <Dialog open={!!viewingSummary} onOpenChange={(open) => !open && setViewingSummary(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Résumé du document</DialogTitle>
-            <DialogDescription>
-              Voici un résumé du document généré par l'IA.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4 max-h-96 overflow-y-auto">
-            <p className="text-sm">{viewingSummary}</p>
-          </div>
-           <DialogFooter>
-              <Button onClick={() => setViewingSummary(null)}>Fermer</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-
-  const MessagesTab = () => (
-    <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20">
-      <header className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">Messages</h2>
-        <Button>
-            <Plus size={16} className="mr-2"/>
-            Nouveau
-        </Button>
-      </header>
-      <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-muted-foreground">
-              <div className="inline-block p-4 bg-background rounded-full">
-                 <Mail size={32} />
-              </div>
-               <h3 className="mt-4 text-lg font-semibold">Aucun message</h3>
-               <p className="text-sm">Commencez une conversation avec un membre de la communauté</p>
-          </div>
       </div>
-    </div>
-  );
+    );
+  };
+  
+  const PrivateChatRoom = ({ recipient, onBack, currentUser }: { recipient: AppUser, onBack: () => void, currentUser: FirebaseUser }) => {
+    const [messages, setMessages] = useState<PrivateMessage[]>([]);
+    const [newMessage, setNewMessage] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+    useEffect(() => {
+        const q = query(
+            collection(db, 'messages'),
+            where('from', 'in', [currentUser.uid, recipient.uid]),
+            where('to', 'in', [currentUser.uid, recipient.uid]),
+            orderBy('timestamp', 'asc')
+        );
 
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const msgs: PrivateMessage[] = [];
+            querySnapshot.forEach((doc) => {
+                // This client-side filter is necessary because Firestore can't do OR queries on different fields.
+                if ((doc.data().from === currentUser.uid && doc.data().to === recipient.uid) ||
+                    (doc.data().from === recipient.uid && doc.data().to === currentUser.uid)) {
+                    msgs.push({ id: doc.id, ...doc.data() } as PrivateMessage);
+                }
+            });
+            setMessages(msgs);
+            setIsLoading(false);
+        }, (error) => {
+            console.error("Error fetching private messages: ", error);
+            toast({ variant: 'destructive', title: 'Erreur', description: 'Impossible de charger les messages.'});
+            setIsLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [currentUser.uid, recipient.uid]);
+
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages]);
+
+    const handleSendMessage = async () => {
+        if (!newMessage.trim()) return;
+
+        const isFile = isValidFileUrl(newMessage);
+        const messageData = {
+            from: currentUser.uid,
+            to: recipient.uid,
+            timestamp: serverTimestamp(),
+            type: isFile ? 'file' : 'text',
+            ...(isFile ? { fileUrl: newMessage, fileName: new URL(newMessage).pathname.split('/').pop() } : { content: newMessage })
+        };
+        
+        try {
+            await addDoc(collection(db, 'messages'), messageData);
+            setNewMessage('');
+        } catch (error) {
+            console.error("Error sending message: ", error);
+            toast({ variant: 'destructive', title: 'Erreur', description: "L'envoi du message a échoué."});
+        }
+    };
+    
+    return (
+        <div className="h-full flex flex-col bg-muted/40 dark:bg-gray-800/20">
+            <header className="flex items-center gap-4 p-4 border-b bg-background dark:bg-gray-900/50">
+                <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft size={18} /></Button>
+                <Avatar><AvatarFallback>{recipient.name.charAt(0)}</AvatarFallback></Avatar>
+                <h2 className="text-xl font-bold">{recipient.name}</h2>
+            </header>
+            <div className="flex-1 p-6 space-y-4 overflow-y-auto">
+                {isLoading ? (
+                    <div className="text-center">Chargement...</div>
+                ) : messages.length === 0 ? (
+                    <div className="text-center text-muted-foreground">Commencez la conversation !</div>
+                ) : (
+                    messages.map(msg => (
+                        <div key={msg.id} className={`flex items-end gap-2 ${msg.from === currentUser.uid ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-md rounded-xl px-4 py-2 ${msg.from === currentUser.uid ? 'bg-primary text-primary-foreground' : 'bg-background dark:bg-gray-800'}`}>
+                                {msg.type === 'file' ? (
+                                    <a
+                                        href={msg.fileUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-2 hover:underline"
+                                    >
+                                        <Paperclip size={16} />
+                                        <span>{msg.fileName}</span>
+                                    </a>
+                                ) : (
+                                    <p>{msg.content}</p>
+                                )}
+                                <p className="text-xs opacity-70 mt-1 text-right">{msg.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                            </div>
+                        </div>
+                    ))
+                )}
+                <div ref={messagesEndRef} />
+            </div>
+            <div className="p-4 bg-background dark:bg-gray-900/50 border-t">
+                <div className="relative flex items-center gap-2">
+                    <Input 
+                        value={newMessage} 
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        placeholder="Envoyer un message ou un lien..."
+                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                    />
+                    <Button onClick={handleSendMessage} disabled={!newMessage.trim()} size="icon">
+                        <Send size={18} />
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+};
+  
+  const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
+    const [users, setUsers] = useState<AppUser[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+  
+    useEffect(() => {
+      const fetchUsers = async () => {
+        try {
+          const usersCollection = collection(db, 'users');
+          const usersSnapshot = await getDocs(usersCollection);
+          const usersList = usersSnapshot.docs
+            .map(doc => doc.data() as AppUser)
+            .filter(user => user.uid !== currentUser.uid);
+          setUsers(usersList);
+        } catch (error) {
+          console.error("Error fetching users: ", error);
+          toast({ variant: "destructive", title: "Erreur", description: "Impossible de charger les utilisateurs." });
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      fetchUsers();
+    }, [currentUser.uid]);
+  
+    return (
+      <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20">
+        <header className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold">Messages</h2>
+          {/* Future button for new group chat? */}
+        </header>
+        {isLoading ? (
+          <div className="text-center text-muted-foreground">Chargement des utilisateurs...</div>
+        ) : users.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center text-muted-foreground">
+              <div className="inline-block p-4 bg-background rounded-full">
+                <Mail size={32} />
+              </div>
+              <h3 className="mt-4 text-lg font-semibold">Aucun autre utilisateur</h3>
+              <p className="text-sm">Invitez des amis à rejoindre Fiche !</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2 overflow-y-auto">
+            {users.map(user => (
+              <div key={user.uid} onClick={() => setActivePrivateChat(user)} className="flex items-center gap-4 p-3 rounded-lg hover:bg-background cursor-pointer transition-colors">
+                <Avatar>
+                  <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                  <p className="font-semibold">{user.name}</p>
+                  <p className="text-sm text-muted-foreground">{user.email}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+  
   const SettingsTab = () => (
     <div className="h-full p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto">
         <h2 className="text-2xl font-bold mb-6">Paramètres</h2>
@@ -1007,26 +1041,6 @@ const FicheApp = () => {
             </div>
 
             <div className="bg-background dark:bg-gray-800 p-6 rounded-lg">
-                <h3 className="text-lg font-semibold mb-4">Notifications</h3>
-                <div className="space-y-4">
-                     <div className="flex items-center justify-between">
-                        <div>
-                            <p className="font-medium">Notifications par e-mail</p>
-                            <p className="text-sm text-muted-foreground">Recevoir des notifications importantes par e-mail.</p>
-                        </div>
-                        <Switch defaultChecked />
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <p className="font-medium">Notifications push</p>
-                            <p className="text-sm text-muted-foreground">Recevoir des notifications push sur vos appareils.</p>
-                        </div>
-                        <Switch />
-                    </div>
-                </div>
-            </div>
-
-            <div className="bg-background dark:bg-gray-800 p-6 rounded-lg">
                 <h3 className="text-lg font-semibold mb-4">Compte</h3>
                  <div className="space-y-4">
                     <Button variant="outline">
@@ -1055,6 +1069,14 @@ const FicheApp = () => {
   if (!currentUser) {
     return <AuthForm />;
   }
+  
+  if (activeCommunityChat) {
+    return <CommunityChatRoom community={activeCommunityChat} onBack={() => setActiveCommunityChat(null)} />;
+  }
+
+  if (activePrivateChat) {
+    return <PrivateChatRoom recipient={activePrivateChat} onBack={() => setActivePrivateChat(null)} currentUser={currentUser} />;
+  }
 
   return (
     <div className="flex h-screen bg-background text-foreground">
@@ -1074,10 +1096,6 @@ const FicheApp = () => {
             <Users size={18} className="mr-3"/>
             Communautés
           </Button>
-          <Button variant={activeTab === 'files' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('files')}>
-            <FileText size={18} className="mr-3"/>
-            Fichiers
-          </Button>
           <Button variant={activeTab === 'messages' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('messages')}>
             <Mail size={18} className="mr-3"/>
             Messages
@@ -1091,6 +1109,7 @@ const FicheApp = () => {
           <Separator className="my-4"/>
           <div className="flex items-center gap-3">
              <Avatar>
+              <AvatarImage src={currentUser?.photoURL || ''} />
               <AvatarFallback>{currentUser?.displayName?.charAt(0) || 'U'}</AvatarFallback>
             </Avatar>
             <div className="flex-1 truncate">
@@ -1108,8 +1127,7 @@ const FicheApp = () => {
       <main className="flex-1 flex flex-col">
         {activeTab === 'chat' && <ChatInterface />}
         {activeTab === 'communities' && <CommunitiesTab />}
-        {activeTab === 'files' && <FilesTab />}
-        {activeTab === 'messages' && <MessagesTab />}
+        {activeTab === 'messages' && <MessagesTab currentUser={currentUser}/>}
         {activeTab === 'settings' && <SettingsTab />}
       </main>
     </div>
