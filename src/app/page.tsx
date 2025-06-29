@@ -39,8 +39,7 @@ import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
-import { auth, db, rtdb, googleProvider, storage } from '@/lib/firebase';
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { auth, db, rtdb, googleProvider } from '@/lib/firebase';
 import {
   signInWithPopup,
   signOut,
@@ -86,9 +85,8 @@ type Community = {
 
 type EmailMessage = {
   id: string;
-  participantUids: string[];
-  senderUid: string;
-  receiverUid: string;
+  from: string;
+  to: string;
   fromName: string;
   toName: string;
   subject: string;
@@ -520,7 +518,7 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
         });
       } catch (error) {
         console.error("Erreur d'abonnement:", error);
-        toast({ variant: 'destructive', title: 'Erreur', description: "L'opération a échoué." });
+        toast({ variant: 'destructive', title: 'Erreur', description: "L'opération a échoué. Vérifiez vos règles Firestore qui n'autorisent que le propriétaire à modifier une communauté." });
       }
     };
 
@@ -635,7 +633,6 @@ const CreateCommunityDialog = ({ isOpen, onOpenChange, currentUser }: { isOpen: 
       }
       setIsCreating(true);
       try {
-          // Utiliser une image placeholder statique car la génération d'image a été retirée
           const placeholderImageUrl = `https://placehold.co/200x200.png?text=${name.charAt(0)}`;
           
           await addDoc(collection(db, 'communities'), {
@@ -644,7 +641,7 @@ const CreateCommunityDialog = ({ isOpen, onOpenChange, currentUser }: { isOpen: 
               ownerId: currentUser.uid,
               createdAt: serverTimestamp(),
               imageUrl: placeholderImageUrl,
-              members: [currentUser.uid], // Le créateur est automatiquement membre
+              members: [currentUser.uid],
           });
           
           toast({ title: "Communauté créée", description: `La communauté "${name}" a été créée avec succès.` });
@@ -820,9 +817,8 @@ const NewMessageDialog = ({ isOpen, onOpenChange, currentUser, users }: { isOpen
 
         try {
             await addDoc(collection(db, 'messages'), {
-                participantUids: [currentUser.uid, recipientUid],
-                senderUid: currentUser.uid,
-                receiverUid: recipientUid,
+                from: currentUser.uid,
+                to: recipientUid,
                 fromName: currentUser.displayName,
                 toName: recipient.name,
                 subject,
@@ -896,9 +892,8 @@ const MessageDetail = ({ message, currentUser }: { message: EmailMessage, curren
         
         try {
             await addDoc(collection(db, 'messages'), {
-                participantUids: [currentUser.uid, message.senderUid],
-                senderUid: currentUser.uid,
-                receiverUid: message.senderUid,
+                from: currentUser.uid,
+                to: message.from,
                 fromName: currentUser.displayName,
                 toName: message.fromName,
                 subject: `Re: ${message.subject}`,
@@ -966,18 +961,15 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
     useEffect(() => {
         const messagesRef = collection(db, 'messages');
     
-        // Vos règles de sécurité Firestore exigent des requêtes séparées pour la boîte de réception et les messages envoyés.
-        const inboxQuery = query(messagesRef, where('receiverUid', '==', currentUser.uid), orderBy('timestamp', 'desc'));
-        const sentQuery = query(messagesRef, where('senderUid', '==', currentUser.uid), orderBy('timestamp', 'desc'));
+        const inboxQuery = query(messagesRef, where('to', '==', currentUser.uid), orderBy('timestamp', 'desc'));
+        const sentQuery = query(messagesRef, where('from', '==', currentUser.uid), orderBy('timestamp', 'desc'));
     
         let inboxMessages: EmailMessage[] = [];
         let sentMessages: EmailMessage[] = [];
     
         const combineAndSetMessages = () => {
             const allMessages = [...inboxMessages, ...sentMessages];
-            // Supprimer les doublons si un utilisateur s'envoie un message à lui-même
             const uniqueMessages = Array.from(new Map(allMessages.map(m => [m.id, m])).values());
-            // Trier tous les messages par ordre chronologique
             uniqueMessages.sort((a, b) => {
                 const timeA = a.timestamp?.toDate().getTime() || 0;
                 const timeB = b.timestamp?.toDate().getTime() || 0;
@@ -1016,7 +1008,7 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
 
     useEffect(() => {
         const message = messages.find(m => m.id === selectedMessageId);
-        if (message && !message.isRead && message.receiverUid === currentUser.uid) {
+        if (message && !message.isRead && message.to === currentUser.uid) {
             const messageRef = doc(db, 'messages', selectedMessageId);
             updateDoc(messageRef, { isRead: true }).catch(err => console.error("Error marking message as read:", err));
         }
@@ -1025,11 +1017,11 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
     const filteredMessages = useMemo(() => {
         switch (filter) {
             case 'inbox':
-                return messages.filter(m => m.receiverUid === currentUser.uid);
+                return messages.filter(m => m.to === currentUser.uid);
             case 'sent':
-                return messages.filter(m => m.senderUid === currentUser.uid);
+                return messages.filter(m => m.from === currentUser.uid);
             case 'unread':
-                return messages.filter(m => m.receiverUid === currentUser.uid && !m.isRead);
+                return messages.filter(m => m.to === currentUser.uid && !m.isRead);
             default:
                 return [];
         }
@@ -1082,16 +1074,105 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
 
 // --- Files Tab ---
 const FilesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
-    // This tab is now a placeholder as per the new requirements.
-    // The functionality is integrated into messaging.
+    const [files, setFiles] = useState<SharedFile[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const { toast } = useToast();
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (!currentUser) return;
+        const q = query(collection(db, "files"), where("ownerId", "==", currentUser.uid), orderBy("createdAt", "desc"));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const userFiles = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SharedFile));
+            setFiles(userFiles);
+        }, (error) => {
+            console.error("Erreur de lecture des fichiers: ", error);
+            if (error.code === 'permission-denied') {
+                 toast({
+                    variant: "destructive",
+                    title: "Permission refusée",
+                    description: "Vos règles de sécurité ne permettent pas de lire cette liste de fichiers. Assurez-vous d'être le propriétaire.",
+                });
+            }
+        });
+        return () => unsubscribe();
+    }, [currentUser, toast]);
+
+    const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !currentUser) return;
+
+        setIsLoading(true);
+        
+        try {
+            await addDoc(collection(db, 'files'), {
+                name: file.name,
+                type: file.type,
+                size: file.size,
+                url: "file_link_placeholder", // Vous remplacerez ceci par la vraie logique de lien
+                ownerId: currentUser.uid,
+                createdAt: serverTimestamp(),
+            });
+
+            toast({ title: "Lien de fichier ajouté", description: `${file.name} a été enregistré.` });
+        } catch (error) {
+            console.error("Error adding file link:", error);
+            toast({ variant: "destructive", title: "Erreur", description: "Impossible d'ajouter le lien du fichier." });
+        } finally {
+            setIsLoading(false);
+            if(fileInputRef.current) fileInputRef.current.value = "";
+        }
+    };
+    
+    const handleDeleteFile = async (fileId: string) => {
+        try {
+            await deleteDoc(doc(db, 'files', fileId));
+            toast({title: "Fichier supprimé", description: "Le lien du fichier a été supprimé."});
+        } catch (error) {
+            console.error("Error deleting file:", error);
+            toast({variant: "destructive", title: "Erreur", description: "La suppression a échoué."});
+        }
+    };
+
     return (
-      <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto items-center justify-center text-center">
-          <FileText size={48} className="text-muted-foreground mb-4"/>
-          <h2 className="text-2xl font-bold">Partage de Fichiers</h2>
-          <p className="text-muted-foreground max-w-md">
-            La fonctionnalité de partage de fichiers est maintenant intégrée directement dans les messages privés et les salons de communauté. Vous pouvez partager des liens vers vos fichiers (PDF, DOC, etc.) directement dans vos conversations.
-          </p>
-      </div>
+        <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto">
+            <header className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold">Fichiers</h2>
+                <Button onClick={() => fileInputRef.current?.click()} disabled={isLoading}>
+                    <UploadCloud size={16} className="mr-2" />
+                    {isLoading ? "Traitement..." : "Partager un lien"}
+                </Button>
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+            </header>
+             {files.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {files.map(file => (
+                        <div key={file.id} className="bg-background dark:bg-gray-800 rounded-lg p-4 flex flex-col">
+                            <div className="flex-1">
+                                <FileIcon className="w-12 h-12 text-primary mx-auto mb-4"/>
+                                <p className="font-semibold truncate text-center">{file.name}</p>
+                                <p className="text-xs text-muted-foreground text-center">{file.type} - {(file.size / 1024).toFixed(2)} KB</p>
+                            </div>
+                            <div className="flex gap-2 mt-4">
+                                <Button variant="outline" size="sm" className="flex-1" onClick={() => {
+                                    navigator.clipboard.writeText(file.url);
+                                    toast({title: "Lien copié"});
+                                }}><Link size={16}/></Button>
+                                <Button variant="destructive" size="icon" onClick={() => handleDeleteFile(file.id)}>
+                                    <Trash2 size={16}/>
+                                </Button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground">
+                    <FileText size={48} className="mb-4"/>
+                    <h3 className="text-xl font-semibold">Aucun fichier partagé</h3>
+                    <p>Cliquez sur "Partager un lien" pour commencer.</p>
+                </div>
+            )}
+        </div>
     );
 };
   
@@ -1291,5 +1372,7 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
+
+    
 
     
