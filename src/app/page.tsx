@@ -956,7 +956,6 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
             setUsers(snapshot.docs.map(doc => doc.data() as AppUser));
         }, (error) => {
             console.error("Error fetching users:", error);
-            // Handle user fetching error if necessary
         });
         return () => unsubscribe();
     }, [currentUser.uid]);
@@ -970,7 +969,7 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
         const messagesRef = collection(db, 'messages');
 
         const inboxQuery = query(messagesRef, where('to', '==', currentUser.uid), orderBy('timestamp', 'desc'));
-        const sentQuery = query(messagesRef, where('from', '==', currentUser.uid), orderBy('timestamp', 'desc'));
+        const sentQuery = query(messagesRef, where('from', '==', currentUser.uid));
 
         const handleError = (error: any) => {
             console.error("Error fetching messages:", error);
@@ -1019,6 +1018,7 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
     }, [currentUser, toast]);
 
     useEffect(() => {
+        if (!selectedMessageId) return;
         const message = messages.find(m => m.id === selectedMessageId);
         if (message && !message.isRead && message.to === currentUser.uid) {
             const messageRef = doc(db, 'messages', selectedMessageId);
@@ -1399,5 +1399,3 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
-
-    
