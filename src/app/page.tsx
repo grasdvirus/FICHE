@@ -208,8 +208,10 @@ const AuthForm = () => {
 
       toast({ title: 'Connexion réussie', description: `Bienvenue, ${user.displayName}!` });
     } catch (error: any) {
-      console.error("Google Sign-In Error:", error);
-      toast({ variant: 'destructive', title: 'Erreur de connexion', description: "Une erreur est survenue lors de la connexion avec Google." });
+      if (error.code !== 'auth/popup-closed-by-user') {
+        console.error("Google Sign-In Error:", error);
+        toast({ variant: 'destructive', title: 'Erreur de connexion', description: "Une erreur est survenue lors de la connexion avec Google." });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -604,16 +606,17 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
             {filteredCommunities.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-8">
                     {filteredCommunities.map(community => {
+                        const isMember = myCommunities.some(mc => mc.id === community.id);
                         return (
                             <div key={community.id} className="group relative flex flex-col items-center text-center">
-                                <div onClick={() => handleSubscription(community.id, true)} className="cursor-pointer">
+                                <div onClick={() => handleSubscription(community.id, !isMember)} className="cursor-pointer">
                                     <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
                                         <AvatarImage src={community.imageUrl} data-ai-hint="logo community"/>
                                         <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
                                     </Avatar>
                                 </div>
-                                <button onClick={() => handleSubscription(community.id, true)} className="absolute top-0 right-0 -mt-1 -mr-1 bg-background rounded-full p-1 shadow-md hover:scale-110 transition-transform">
-                                  <PlusCircle size={24} className="text-primary"/>
+                                <button onClick={() => handleSubscription(community.id, !isMember)} className="absolute top-0 right-0 -mt-1 -mr-1 bg-background rounded-full p-1 shadow-md hover:scale-110 transition-transform">
+                                  {isMember ? <CheckCircle2 size={24} className="text-green-500" /> : <PlusCircle size={24} className="text-primary"/>}
                                 </button>
                                 <p className="font-semibold">{community.name}</p>
                                 <p className="text-sm text-muted-foreground line-clamp-2">{community.description}</p>
@@ -1412,5 +1415,3 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
-
-    
