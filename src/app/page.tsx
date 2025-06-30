@@ -74,6 +74,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 
 // --- Data Types ---
@@ -273,7 +274,8 @@ const AuthForm = () => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       toast({ title: 'Connexion réussie' });
-    } catch (error: any) {
+    } catch (error: any)
+{
       console.error("Sign-In Error:", error);
       let description = "Une erreur inattendue est survenue.";
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
@@ -486,14 +488,12 @@ const ChatInterface = ({currentUser}: {currentUser: FirebaseUser}) => {
   const [userText, setUserText] = useState('');
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   let messageIdCounter = 0;
 
   useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory]);
 
 
@@ -554,35 +554,38 @@ const ChatInterface = ({currentUser}: {currentUser: FirebaseUser}) => {
   }, []);
     return (
     <div className="flex flex-col h-full bg-muted/40 dark:bg-gray-800/20">
-      <div ref={chatContainerRef} className="flex-1 p-6 space-y-6 overflow-y-auto">
-        {chatHistory.length === 0 ? (
-           <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
-              <div className="p-5 bg-background dark:bg-gray-800 rounded-full mb-4">
-                <Brain size={40} className="text-primary"/>
-              </div>
-              <h2 className="text-2xl font-semibold text-foreground">Commencez une conversation</h2>
-              <p>Tapez votre texte et recevez des suggestions intelligentes.</p>
-          </div>
-        ) : (
-          chatHistory.map((message) => (
-            <div key={message.id}>
-              <ChatMessageDisplay
-                message={message}
-                onLike={() => handleLike(message.id)}
-              />
+       <ScrollArea className="flex-1">
+        <div className="p-6 space-y-6">
+          {chatHistory.length === 0 ? (
+             <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
+                <div className="p-5 bg-background dark:bg-gray-800 rounded-full mb-4">
+                  <Brain size={40} className="text-primary"/>
+                </div>
+                <h2 className="text-2xl font-semibold text-foreground">Commencez une conversation</h2>
+                <p>Tapez votre texte et recevez des suggestions intelligentes.</p>
             </div>
-          ))
-        )}
-        {isLoading && (
-           <div className="flex items-center gap-4 justify-start">
-              <Avatar className="w-8 h-8"><AvatarFallback><Brain size={18}/></AvatarFallback></Avatar>
-                <div className="bg-background dark:bg-gray-800 p-4 rounded-xl">
-                 L'IA réfléchit...
+          ) : (
+            chatHistory.map((message) => (
+              <div key={message.id}>
+                <ChatMessageDisplay
+                  message={message}
+                  onLike={() => handleLike(message.id)}
+                />
               </div>
-            </div>
-          
-        )}
-      </div>
+            ))
+          )}
+          {isLoading && (
+             <div className="flex items-center gap-4 justify-start">
+                <Avatar className="w-8 h-8"><AvatarFallback><Brain size={18}/></AvatarFallback></Avatar>
+                  <div className="bg-background dark:bg-gray-800 p-4 rounded-xl">
+                   L'IA réfléchit...
+                </div>
+              </div>
+            
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+      </ScrollArea>
       <div className="p-4 bg-background dark:bg-gray-900/50 border-t border-border">
         <div className="flex items-start gap-2">
           <Textarea
@@ -710,8 +713,8 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
     );
 
     return (
-        <div className="h-full flex flex-col p-4 md:p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto">
-            <header className="flex flex-col md:flex-row items-center justify-between mb-6 gap-4">
+        <div className="h-full flex flex-col bg-muted/40 dark:bg-gray-800/20">
+             <header className="flex flex-col md:flex-row items-center justify-between mb-6 gap-4 p-4 md:p-6 pb-0">
                 <h2 className="text-2xl font-bold">Communautés</h2>
                 <div className="flex w-full md:w-auto items-center gap-2">
                     <div className="relative flex-1">
@@ -730,48 +733,51 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
                     </Button>
                 </div>
             </header>
-
-            {myCommunities.length > 0 && (
-                <div className="mb-8">
-                    <h3 className="text-xl font-semibold mb-4">Mes communautés</h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
-                        {myCommunities.map(community => <MyCommunityCard key={community.id} community={community} />)}
-                    </div>
-                    <Separator className="mt-8"/>
-                </div>
-            )}
-            
-            <h3 className="text-xl font-semibold mb-4">Découvrir</h3>
-            {filteredCommunities.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8 md:gap-x-6">
-                    {filteredCommunities.map(community => {
-                        const isMember = myCommunities.some(mc => mc.id === community.id);
-                        return (
-                            <div key={community.id} className="group relative flex flex-col items-center text-center">
-                                <div onClick={() => handleSubscription(community.id, !isMember)} className="cursor-pointer">
-                                    <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
-                                        <AvatarImage src={community.imageUrl} data-ai-hint="logo community"/>
-                                        <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
-                                    </Avatar>
-                                </div>
-                                <button onClick={() => handleSubscription(community.id, !isMember)} className="absolute top-0 right-0 -mt-1 -mr-1 bg-background rounded-full p-1 shadow-md hover:scale-110 transition-transform">
-                                  {isMember ? <CheckCircle2 size={24} className="text-green-500" /> : <PlusCircle size={24} className="text-primary"/>}
-                                </button>
-                                <p className="font-semibold">{community.name}</p>
-                                <p className="text-sm text-muted-foreground line-clamp-2">{community.description}</p>
+            <ScrollArea className="flex-1">
+                <div className="p-4 md:p-6">
+                    {myCommunities.length > 0 && (
+                        <div className="mb-8">
+                            <h3 className="text-xl font-semibold mb-4">Mes communautés</h3>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
+                                {myCommunities.map(community => <MyCommunityCard key={community.id} community={community} />)}
                             </div>
-                        )
-                    })}
+                            <Separator className="mt-8"/>
+                        </div>
+                    )}
+                    
+                    <h3 className="text-xl font-semibold mb-4">Découvrir</h3>
+                    {filteredCommunities.length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8 md:gap-x-6">
+                            {filteredCommunities.map(community => {
+                                const isMember = myCommunities.some(mc => mc.id === community.id);
+                                return (
+                                    <div key={community.id} className="group relative flex flex-col items-center text-center">
+                                        <div onClick={() => handleSubscription(community.id, !isMember)} className="cursor-pointer">
+                                            <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
+                                                <AvatarImage src={community.imageUrl} data-ai-hint="logo community"/>
+                                                <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
+                                            </Avatar>
+                                        </div>
+                                        <button onClick={() => handleSubscription(community.id, !isMember)} className="absolute top-0 right-0 -mt-1 -mr-1 bg-background rounded-full p-1 shadow-md hover:scale-110 transition-transform">
+                                          {isMember ? <CheckCircle2 size={24} className="text-green-500" /> : <PlusCircle size={24} className="text-primary"/>}
+                                        </button>
+                                        <p className="font-semibold">{community.name}</p>
+                                        <p className="text-sm text-muted-foreground line-clamp-2">{community.description}</p>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    ) : (
+                        <div className="text-center text-muted-foreground py-10">
+                            <div className="inline-block p-4 bg-background rounded-full">
+                                <Users size={32} />
+                            </div>
+                            <h3 className="mt-4 text-lg font-semibold">Aucune communauté à découvrir</h3>
+                            <p className="text-sm">Revenez plus tard ou créez la vôtre !</p>
+                        </div>
+                    )}
                 </div>
-            ) : (
-                <div className="text-center text-muted-foreground py-10">
-                    <div className="inline-block p-4 bg-background rounded-full">
-                        <Users size={32} />
-                    </div>
-                    <h3 className="mt-4 text-lg font-semibold">Aucune communauté à découvrir</h3>
-                    <p className="text-sm">Revenez plus tard ou créez la vôtre !</p>
-                </div>
-            )}
+            </ScrollArea>
             <CommunityFormDialog 
               isOpen={isCreateDialogOpen || !!communityToEdit} 
               onOpenChange={(isOpen) => {
@@ -971,25 +977,27 @@ const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Comm
         </Avatar>
         <h2 className="text-xl font-bold">{community.name}</h2>
       </header>
-      <div className="flex-1 p-6 space-y-4 overflow-y-auto">
-        {isLoading ? (
-          <div className="text-center text-muted-foreground">Chargement des messages...</div>
-        ) : messages.length === 0 ? (
-          <div className="text-center text-muted-foreground">Aucun message. Soyez le premier !</div>
-        ) : (
-          messages.map((msg) => (
-            <div key={msg.id} className={`flex items-end gap-2 ${msg.from === currentUser?.uid ? 'justify-end' : 'justify-start'}`}>
-              {msg.from !== currentUser?.uid && <Avatar className="w-8 h-8 self-start"><AvatarFallback>{msg.fromName.charAt(0)}</AvatarFallback></Avatar>}
-              <div className={`max-w-md rounded-xl px-4 py-2 ${msg.from === currentUser?.uid ? 'bg-primary text-primary-foreground' : 'bg-background dark:bg-gray-800'}`}>
-                {msg.from !== currentUser?.uid && <div className="text-xs font-bold text-primary mb-1">{msg.fromName}</div>}
-                <p>{msg.content}</p>
-                <p className="text-xs opacity-70 mt-1 text-right">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+      <ScrollArea className="flex-1">
+        <div className="p-6 space-y-4">
+          {isLoading ? (
+            <div className="text-center text-muted-foreground">Chargement des messages...</div>
+          ) : messages.length === 0 ? (
+            <div className="text-center text-muted-foreground">Aucun message. Soyez le premier !</div>
+          ) : (
+            messages.map((msg) => (
+              <div key={msg.id} className={`flex items-end gap-2 ${msg.from === currentUser?.uid ? 'justify-end' : 'justify-start'}`}>
+                {msg.from !== currentUser?.uid && <Avatar className="w-8 h-8 self-start"><AvatarFallback>{msg.fromName.charAt(0)}</AvatarFallback></Avatar>}
+                <div className={`max-w-md rounded-xl px-4 py-2 ${msg.from === currentUser?.uid ? 'bg-primary text-primary-foreground' : 'bg-background dark:bg-gray-800'}`}>
+                  {msg.from !== currentUser?.uid && <div className="text-xs font-bold text-primary mb-1">{msg.fromName}</div>}
+                  <p>{msg.content}</p>
+                  <p className="text-xs opacity-70 mt-1 text-right">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                </div>
               </div>
-            </div>
-          ))
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+            ))
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+      </ScrollArea>
       <div className="p-4 bg-background dark:bg-gray-900/50 border-t">
         <div className="relative flex items-center gap-2">
           <Input
@@ -1149,9 +1157,11 @@ const MessageDetail = ({ message, currentUser, onBack }: { message: EmailMessage
                     <p className="ml-auto text-muted-foreground">{format(message.timestamp.toDate(), "d MMMM yyyy 'à' HH:mm", { locale: fr })}</p>
                 </div>
             </div>
-            <div className="flex-1 py-6 whitespace-pre-wrap overflow-y-auto">
-                {message.content}
-            </div>
+             <ScrollArea className="flex-1 py-6">
+                <div className="whitespace-pre-wrap">
+                    {message.content}
+                </div>
+            </ScrollArea>
             <div className="mt-auto pt-4 border-t">
                  <h3 className="font-semibold mb-2">Répondre</h3>
                 <Textarea 
@@ -1270,7 +1280,7 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
                     </Tabs>
                 </div>
                 <Separator />
-                <div className="flex-1 overflow-y-auto">
+                <ScrollArea className="flex-1">
                     {fetchError ? (
                         <div className="p-4 text-center text-sm text-destructive">{fetchError}</div>
                     ) : filteredMessages.length > 0 ? (
@@ -1285,7 +1295,7 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
                     ) : (
                         <p className="p-4 text-center text-sm text-muted-foreground">Aucun message.</p>
                     )}
-                </div>
+                </ScrollArea>
                 <NewMessageDialog isOpen={isComposing} onOpenChange={setIsComposing} currentUser={currentUser} users={users} />
             </div>
         )
@@ -1303,7 +1313,7 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
                     <Button variant={filter === 'unread' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setFilter('unread')}><Mail size={16} className="mr-2"/>Non lus</Button>
                 </div>
                 <Separator />
-                <div className="flex-1 overflow-y-auto">
+                <ScrollArea className="flex-1">
                     {fetchError ? (
                         <div className="p-4 text-center text-sm text-destructive">{fetchError}</div>
                     ) : filteredMessages.length > 0 ? (
@@ -1318,7 +1328,7 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
                     ) : (
                         <p className="p-4 text-center text-sm text-muted-foreground">Aucun message.</p>
                     )}
-                </div>
+                </ScrollArea>
             </div>
             <div className="flex-1">
                 {selectedMessage ? (
@@ -1452,14 +1462,16 @@ const SettingsTab = ({theme, setTheme, currentUser, onLogout}: {theme: 'light' |
                             </Avatar>
                             <h2 className="text-xl font-bold">Paramètres</h2>
                         </header>
-                        <nav className="flex flex-col gap-1 flex-1 p-4">
-                            <SettingsItem icon={<User size={20}/>} title="Profil" subtitle="Gérer vos informations" onClick={() => handleItemClick('profile')} isActive={activeSection === 'profile'} />
-                            <SettingsItem icon={<Palette size={20}/>} title="Apparence" subtitle="Personnaliser l'interface" onClick={() => handleItemClick('appearance')} isActive={activeSection === 'appearance'} />
-                            <SettingsItem icon={<Lock size={20}/>} title="Confidentialité" subtitle="Gérer vos données" onClick={() => handleItemClick('privacy')} isActive={activeSection === 'privacy'} />
-                            <SettingsItem icon={<Bell size={20}/>} title="Notifications" subtitle="Ajuster les alertes" onClick={() => handleItemClick('notifications')} isActive={activeSection === 'notifications'} />
-                            <SettingsItem icon={<Trash2 size={20}/>} title="Compte" subtitle="Supprimer vos données" onClick={() => handleItemClick('account')} isActive={activeSection === 'account'} />
-                        </nav>
-                        <div className="p-4 mt-auto">
+                        <ScrollArea className="flex-1">
+                            <nav className="flex flex-col gap-1 p-4">
+                                <SettingsItem icon={<User size={20}/>} title="Profil" subtitle="Gérer vos informations" onClick={() => handleItemClick('profile')} isActive={activeSection === 'profile'} />
+                                <SettingsItem icon={<Palette size={20}/>} title="Apparence" subtitle="Personnaliser l'interface" onClick={() => handleItemClick('appearance')} isActive={activeSection === 'appearance'} />
+                                <SettingsItem icon={<Lock size={20}/>} title="Confidentialité" subtitle="Gérer vos données" onClick={() => handleItemClick('privacy')} isActive={activeSection === 'privacy'} />
+                                <SettingsItem icon={<Bell size={20}/>} title="Notifications" subtitle="Ajuster les alertes" onClick={() => handleItemClick('notifications')} isActive={activeSection === 'notifications'} />
+                                <SettingsItem icon={<Trash2 size={20}/>} title="Compte" subtitle="Supprimer vos données" onClick={() => handleItemClick('account')} isActive={activeSection === 'account'} />
+                            </nav>
+                        </ScrollArea>
+                        <div className="p-4 mt-auto border-t">
                             <Button variant="ghost" onClick={onLogout} className="w-full justify-start text-red-500 hover:text-red-500 hover:bg-red-500/10">
                                 <LogOut size={18} className="mr-3"/> Se déconnecter
                             </Button>
@@ -1471,9 +1483,11 @@ const SettingsTab = ({theme, setTheme, currentUser, onLogout}: {theme: 'light' |
                              <Button variant="ghost" size="icon" onClick={() => setMobileView('list')} className="-ml-2"><ArrowLeft size={20} /></Button>
                              <h2 className="text-xl font-bold">{activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}</h2>
                         </header>
-                        <main className="flex-1 p-6 overflow-y-auto">
-                            {renderContent()}
-                        </main>
+                        <ScrollArea className="flex-1">
+                            <main className="p-6">
+                                {renderContent()}
+                            </main>
+                        </ScrollArea>
                     </>
                 )}
                  <AlertDialog open={isDeleteAlertOpen} onOpenChange={setIsDeleteAlertOpen}>
@@ -1500,20 +1514,26 @@ const SettingsTab = ({theme, setTheme, currentUser, onLogout}: {theme: 'light' |
         <div className="h-full flex flex-row bg-muted/40 dark:bg-gray-800/20">
             <div className="w-1/3 max-w-sm border-r bg-background p-4 flex flex-col">
                 <h2 className="text-2xl font-bold p-2 mb-4">Paramètres</h2>
-                <nav className="flex flex-col gap-1 flex-1">
-                    <SettingsItem icon={<User size={20}/>} title="Profil" subtitle="Gérer vos informations" onClick={() => handleItemClick('profile')} isActive={activeSection === 'profile'} />
-                    <SettingsItem icon={<Palette size={20}/>} title="Apparence" subtitle="Personnaliser l'interface" onClick={() => handleItemClick('appearance')} isActive={activeSection === 'appearance'} />
-                    <SettingsItem icon={<Lock size={20}/>} title="Confidentialité" subtitle="Gérer vos données" onClick={() => handleItemClick('privacy')} isActive={activeSection === 'privacy'} />
-                    <SettingsItem icon={<Bell size={20}/>} title="Notifications" subtitle="Ajuster les alertes" onClick={() => handleItemClick('notifications')} isActive={activeSection === 'notifications'} />
-                    <SettingsItem icon={<Trash2 size={20}/>} title="Compte" subtitle="Supprimer vos données" onClick={() => handleItemClick('account')} isActive={activeSection === 'account'} />
-                </nav>
-                 <Button variant="ghost" onClick={onLogout} className="w-full justify-start text-red-500 hover:text-red-500 hover:bg-red-500/10">
-                    <LogOut size={18} className="mr-3"/> Se déconnecter
-                 </Button>
+                <ScrollArea className="flex-1 -mx-4">
+                    <nav className="flex flex-col gap-1 px-4">
+                        <SettingsItem icon={<User size={20}/>} title="Profil" subtitle="Gérer vos informations" onClick={() => handleItemClick('profile')} isActive={activeSection === 'profile'} />
+                        <SettingsItem icon={<Palette size={20}/>} title="Apparence" subtitle="Personnaliser l'interface" onClick={() => handleItemClick('appearance')} isActive={activeSection === 'appearance'} />
+                        <SettingsItem icon={<Lock size={20}/>} title="Confidentialité" subtitle="Gérer vos données" onClick={() => handleItemClick('privacy')} isActive={activeSection === 'privacy'} />
+                        <SettingsItem icon={<Bell size={20}/>} title="Notifications" subtitle="Ajuster les alertes" onClick={() => handleItemClick('notifications')} isActive={activeSection === 'notifications'} />
+                        <SettingsItem icon={<Trash2 size={20}/>} title="Compte" subtitle="Supprimer vos données" onClick={() => handleItemClick('account')} isActive={activeSection === 'account'} />
+                    </nav>
+                 </ScrollArea>
+                 <div className="pt-4 border-t mt-4">
+                     <Button variant="ghost" onClick={onLogout} className="w-full justify-start text-red-500 hover:text-red-500 hover:bg-red-500/10">
+                        <LogOut size={18} className="mr-3"/> Se déconnecter
+                     </Button>
+                </div>
             </div>
-            <main className="flex-1 p-8 overflow-y-auto">
-                {renderContent()}
-            </main>
+            <ScrollArea className="flex-1">
+                <main className="p-8">
+                    {renderContent()}
+                </main>
+            </ScrollArea>
 
             <AlertDialog open={isDeleteAlertOpen} onOpenChange={setIsDeleteAlertOpen}>
                 <AlertDialogContent>
@@ -1642,7 +1662,7 @@ const FicheApp = () => {
 
   return (
     <AudioPlayerProvider>
-      <div className="h-screen bg-background text-foreground overflow-hidden">
+      <div className="h-screen bg-background text-foreground">
         <div className="flex h-full">
             {/* Desktop Sidebar */}
             <aside className="w-64 flex-col bg-white dark:bg-gray-900 border-r border-border p-4 hidden md:flex">
