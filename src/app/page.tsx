@@ -994,15 +994,26 @@ const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Comm
         const markAsRead = async () => {
             try {
                 await update(rtdbRef(rtdb), updates);
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Error marking messages as read:", error);
+                 if (error.code === 'PERMISSION_DENIED') {
+                    if (typeof window !== 'undefined' && !sessionStorage.getItem('rtdb_permission_warning_shown')) {
+                        toast({
+                            variant: 'destructive',
+                            title: 'Erreur de configuration',
+                            description: "Impossible de marquer les messages comme lus. Vérifiez que vos règles Realtime Database sont correctes et à jour.",
+                            duration: 10000,
+                        });
+                        sessionStorage.setItem('rtdb_permission_warning_shown', 'true');
+                    }
+                }
             }
         };
 
         const timeoutId = setTimeout(markAsRead, 1500);
         return () => clearTimeout(timeoutId);
     }
-}, [messages, community.id, community.members, currentUser]);
+}, [messages, community.id, community.members, currentUser, toast]);
 
 
   const handleSendMessage = async () => {
