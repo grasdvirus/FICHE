@@ -254,7 +254,13 @@ const AuthForm = () => {
       toast({ title: 'Inscription réussie', description: `Bienvenue, ${name}!` });
     } catch (error: any) {
       console.error("Sign-Up Error:", error);
-      toast({ variant: 'destructive', title: 'Erreur d\'inscription', description: "Une erreur est survenue." });
+      let description = "Une erreur est survenue lors de la création du compte.";
+      if (error.code === 'auth/email-already-in-use') {
+        description = "Cette adresse e-mail est déjà utilisée par un autre compte.";
+      } else if (error.code === 'auth/weak-password') {
+        description = "Le mot de passe doit contenir au moins 6 caractères.";
+      }
+      toast({ variant: 'destructive', title: 'Erreur d\'inscription', description: description });
     } finally {
       setIsLoading(false);
     }
@@ -268,7 +274,15 @@ const AuthForm = () => {
       toast({ title: 'Connexion réussie' });
     } catch (error: any) {
       console.error("Sign-In Error:", error);
-      toast({ variant: 'destructive', title: 'Erreur de connexion', description: "Vérifiez votre e-mail et mot de passe." });
+      let description = "Une erreur inattendue est survenue.";
+      if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+          description = "L'adresse e-mail ou le mot de passe est incorrect. Veuillez vérifier vos informations.";
+      }
+      toast({ 
+        variant: 'destructive', 
+        title: 'Erreur de connexion', 
+        description: description 
+      });
     } finally {
       setIsLoading(false);
     }
@@ -1539,5 +1553,3 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
-
-    
