@@ -42,6 +42,7 @@ import { analyzeText } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
 import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from '@/hooks/use-mobile';
 
 // Firebase
 import { auth, db, rtdb, googleProvider } from '@/lib/firebase';
@@ -636,7 +637,7 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
             toast({
                 variant: "destructive",
                 title: "Erreur de base de données",
-                description: "Impossible de charger les communautés. Vérifiez les permissions.",
+                description: "Impossible de charger les communautés.",
             });
         });
         return () => unsubscribe();
@@ -656,7 +657,7 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
         });
       } catch (error) {
         console.error("Erreur d'abonnement:", error);
-        toast({ variant: 'destructive', title: 'Erreur', description: "L'opération a échoué. Vos règles Firestore n'autorisent peut-être pas cette action." });
+        toast({ variant: 'destructive', title: 'Erreur', description: "L'opération a échoué." });
       }
     };
 
@@ -709,23 +710,23 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
     );
 
     return (
-        <div className="h-full flex flex-col p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto">
-            <header className="flex items-center justify-between mb-6">
+        <div className="h-full flex flex-col p-4 md:p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto">
+            <header className="flex flex-col md:flex-row items-center justify-between mb-6 gap-4">
                 <h2 className="text-2xl font-bold">Communautés</h2>
-                <div className="flex items-center gap-2">
-                    <div className="relative">
+                <div className="flex w-full md:w-auto items-center gap-2">
+                    <div className="relative flex-1">
                         <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
                             type="search"
                             placeholder="Rechercher..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-8 w-64 bg-background"
+                            className="pl-8 w-full bg-background"
                         />
                     </div>
                     <Button onClick={() => setIsCreateDialogOpen(true)}>
                         <Plus size={16} className="mr-2" />
-                        Créer
+                        <span className="hidden sm:inline">Créer</span>
                     </Button>
                 </div>
             </header>
@@ -733,7 +734,7 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
             {myCommunities.length > 0 && (
                 <div className="mb-8">
                     <h3 className="text-xl font-semibold mb-4">Mes communautés</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
                         {myCommunities.map(community => <MyCommunityCard key={community.id} community={community} />)}
                     </div>
                     <Separator className="mt-8"/>
@@ -742,7 +743,7 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
             
             <h3 className="text-xl font-semibold mb-4">Découvrir</h3>
             {filteredCommunities.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-8">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8 md:gap-x-6">
                     {filteredCommunities.map(community => {
                         const isMember = myCommunities.some(mc => mc.id === community.id);
                         return (
@@ -1097,10 +1098,11 @@ const MessageListItem = ({ message, onSelect, isSelected }: { message: EmailMess
     );
 };
 
-const MessageDetail = ({ message, currentUser }: { message: EmailMessage, currentUser: FirebaseUser }) => {
+const MessageDetail = ({ message, currentUser, onBack }: { message: EmailMessage, currentUser: FirebaseUser, onBack: () => void }) => {
     const { toast } = useToast();
     const [replyContent, setReplyContent] = useState('');
     const [isSendingReply, setIsSendingReply] = useState(false);
+    const isMobile = useIsMobile();
 
     const handleReply = async () => {
         if (!replyContent.trim()) return;
@@ -1129,8 +1131,14 @@ const MessageDetail = ({ message, currentUser }: { message: EmailMessage, curren
     };
     
     return (
-        <div className="p-6 flex flex-col h-full">
-            <div className="border-b pb-4">
+        <div className="p-4 md:p-6 flex flex-col h-full bg-background">
+             {isMobile && (
+                 <header className="flex items-center gap-2 mb-4 pb-4 border-b">
+                    <Button variant="ghost" size="icon" onClick={onBack} className="-ml-2"><ArrowLeft size={20} /></Button>
+                    <h2 className="text-lg font-bold truncate">{message.subject}</h2>
+                </header>
+            )}
+            <div className="border-b pb-4 hidden md:block">
                 <h2 className="text-2xl font-bold mb-2">{message.subject}</h2>
                 <div className="flex items-center gap-2 text-sm">
                     <Avatar className="w-8 h-8"><AvatarFallback>{message.fromName.charAt(0)}</AvatarFallback></Avatar>
@@ -1167,6 +1175,7 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
     const [filter, setFilter] = useState<'inbox' | 'sent' | 'unread'>('inbox');
     const [isComposing, setIsComposing] = useState(false);
     const [fetchError, setFetchError] = useState<string | null>(null);
+    const isMobile = useIsMobile();
 
     useEffect(() => {
         const usersCol = collection(db, 'users');
@@ -1231,6 +1240,54 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
     }, [messages, filter, currentUser.uid]);
 
     const selectedMessage = messages.find(m => m.id === selectedMessageId);
+    
+    if (isMobile) {
+        if (selectedMessage) {
+            return (
+                <MessageDetail 
+                    message={selectedMessage} 
+                    currentUser={currentUser} 
+                    onBack={() => setSelectedMessageId(null)}
+                />
+            );
+        }
+
+        return (
+             <div className="h-full flex flex-col bg-background">
+                <header className="p-4 border-b flex justify-between items-center">
+                    <h2 className="text-xl font-bold">Messages</h2>
+                    <Button size="sm" onClick={() => setIsComposing(true)}><PenSquare size={16} className="mr-2"/>Nouveau</Button>
+                </header>
+                 <div className="p-2">
+                    <Tabs defaultValue="inbox" onValueChange={(value) => setFilter(value as any)} className="w-full">
+                        <TabsList className="grid w-full grid-cols-3 h-auto">
+                            <TabsTrigger value="inbox"><Inbox size={16} className="md:mr-2" /><span className="hidden md:inline">Boîte de réception</span></TabsTrigger>
+                            <TabsTrigger value="sent"><Send size={16} className="md:mr-2" /><span className="hidden md:inline">Envoyés</span></TabsTrigger>
+                            <TabsTrigger value="unread"><Mail size={16} className="md:mr-2" /><span className="hidden md:inline">Non lus</span></TabsTrigger>
+                        </TabsList>
+                    </Tabs>
+                </div>
+                <Separator />
+                <div className="flex-1 overflow-y-auto">
+                    {fetchError ? (
+                        <div className="p-4 text-center text-sm text-destructive">{fetchError}</div>
+                    ) : filteredMessages.length > 0 ? (
+                        filteredMessages.map(msg => (
+                            <MessageListItem 
+                                key={msg.id} 
+                                message={msg} 
+                                onSelect={() => setSelectedMessageId(msg.id)}
+                                isSelected={selectedMessageId === msg.id}
+                            />
+                        ))
+                    ) : (
+                        <p className="p-4 text-center text-sm text-muted-foreground">Aucun message.</p>
+                    )}
+                </div>
+                <NewMessageDialog isOpen={isComposing} onOpenChange={setIsComposing} currentUser={currentUser} users={users} />
+            </div>
+        )
+    }
 
     return (
         <div className="h-full flex flex-row bg-muted/20">
@@ -1263,7 +1320,7 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
             </div>
             <div className="flex-1">
                 {selectedMessage ? (
-                    <MessageDetail message={selectedMessage} currentUser={currentUser} />
+                    <MessageDetail message={selectedMessage} currentUser={currentUser} onBack={() => {}} />
                 ) : (
                     <div className="flex h-full items-center justify-center text-muted-foreground">
                         <p>Sélectionnez un message pour le lire.</p>
@@ -1293,14 +1350,21 @@ const SettingsItem = ({ icon, title, subtitle, onClick, isActive }: { icon: Reac
 );
 
 const SettingsTab = ({theme, setTheme, currentUser, onLogout}: {theme: 'light' | 'dark', setTheme: (theme: 'light' | 'dark') => void, currentUser: FirebaseUser, onLogout: () => void}) => {
+    const isMobile = useIsMobile();
     const [activeSection, setActiveSection] = useState('profile');
     const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState(false);
+    const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
     const { toast } = useToast();
+
+    const handleItemClick = (section: string) => {
+        setActiveSection(section);
+        if (isMobile) {
+            setMobileView('detail');
+        }
+    };
 
     const handleDeleteAccount = async () => {
         try {
-            // This is a simplified deletion. A complete solution would use Cloud Functions
-            // to delete all user-related data (messages, communities owned, etc.)
             await deleteDoc(doc(db, 'users', currentUser.uid));
             toast({ title: 'Compte supprimé', description: 'Vos données ont été supprimées de Firestore.' });
             onLogout();
@@ -1315,13 +1379,13 @@ const SettingsTab = ({theme, setTheme, currentUser, onLogout}: {theme: 'light' |
             case 'profile':
                 return (
                     <div className="space-y-6">
-                        <h3 className="text-xl font-bold">Profil</h3>
-                        <div className="flex items-center gap-6">
+                        <h3 className="text-xl font-bold hidden md:block">Profil</h3>
+                        <div className="flex flex-col md:flex-row items-center gap-6">
                             <Avatar className="w-24 h-24">
                                 <AvatarImage src={currentUser.photoURL || undefined} />
                                 <AvatarFallback><User size={40}/></AvatarFallback>
                             </Avatar>
-                            <div className="flex-1 space-y-4">
+                            <div className="flex-1 w-full space-y-4">
                                 <div>
                                     <label className="text-sm font-medium text-muted-foreground">Nom complet</label>
                                     <Input defaultValue={currentUser?.displayName || ''} readOnly className="mt-1" />
@@ -1337,7 +1401,7 @@ const SettingsTab = ({theme, setTheme, currentUser, onLogout}: {theme: 'light' |
             case 'appearance':
                 return (
                     <div className="space-y-6">
-                        <h3 className="text-xl font-bold">Apparence</h3>
+                        <h3 className="text-xl font-bold hidden md:block">Apparence</h3>
                         <div className="flex items-center justify-between p-4 border rounded-lg">
                             <div>
                                 <p className="font-medium">Thème sombre</p>
@@ -1354,7 +1418,7 @@ const SettingsTab = ({theme, setTheme, currentUser, onLogout}: {theme: 'light' |
             case 'account':
                 return (
                      <div className="space-y-6">
-                        <h3 className="text-xl font-bold">Compte</h3>
+                        <h3 className="text-xl font-bold hidden md:block">Compte</h3>
                         <div className="p-4 border border-destructive/50 rounded-lg">
                             <h4 className="font-semibold text-destructive">Zone de danger</h4>
                             <p className="text-sm text-muted-foreground mt-1 mb-4">La suppression de votre compte est une action irréversible.</p>
@@ -1367,23 +1431,79 @@ const SettingsTab = ({theme, setTheme, currentUser, onLogout}: {theme: 'light' |
             default:
                 return (
                     <div className="text-center text-muted-foreground">
-                        <h3 className="text-xl font-bold">{activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}</h3>
+                        <h3 className="text-xl font-bold hidden md:block">{activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}</h3>
                         <p>Cette section sera bientôt disponible.</p>
                     </div>
                 );
         }
     };
+
+     if (isMobile) {
+        return (
+            <div className="h-full flex flex-col bg-background">
+                {mobileView === 'list' ? (
+                     <>
+                        <header className="p-4 border-b flex items-center gap-3">
+                             <Avatar>
+                                <AvatarImage src={currentUser?.photoURL || ''} />
+                                <AvatarFallback>{currentUser?.displayName?.charAt(0) || 'U'}</AvatarFallback>
+                            </Avatar>
+                            <h2 className="text-xl font-bold">Paramètres</h2>
+                        </header>
+                        <nav className="flex flex-col gap-1 flex-1 p-4">
+                            <SettingsItem icon={<User size={20}/>} title="Profil" subtitle="Gérer vos informations" onClick={() => handleItemClick('profile')} isActive={activeSection === 'profile'} />
+                            <SettingsItem icon={<Palette size={20}/>} title="Apparence" subtitle="Personnaliser l'interface" onClick={() => handleItemClick('appearance')} isActive={activeSection === 'appearance'} />
+                            <SettingsItem icon={<Lock size={20}/>} title="Confidentialité" subtitle="Gérer vos données" onClick={() => handleItemClick('privacy')} isActive={activeSection === 'privacy'} />
+                            <SettingsItem icon={<Bell size={20}/>} title="Notifications" subtitle="Ajuster les alertes" onClick={() => handleItemClick('notifications')} isActive={activeSection === 'notifications'} />
+                            <SettingsItem icon={<Trash2 size={20}/>} title="Compte" subtitle="Supprimer vos données" onClick={() => handleItemClick('account')} isActive={activeSection === 'account'} />
+                        </nav>
+                        <div className="p-4 mt-auto">
+                            <Button variant="ghost" onClick={onLogout} className="w-full justify-start text-red-500 hover:text-red-500 hover:bg-red-500/10">
+                                <LogOut size={18} className="mr-3"/> Se déconnecter
+                            </Button>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <header className="p-4 border-b flex items-center gap-2">
+                             <Button variant="ghost" size="icon" onClick={() => setMobileView('list')} className="-ml-2"><ArrowLeft size={20} /></Button>
+                             <h2 className="text-xl font-bold">{activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}</h2>
+                        </header>
+                        <main className="flex-1 p-6 overflow-y-auto">
+                            {renderContent()}
+                        </main>
+                    </>
+                )}
+                 <AlertDialog open={isDeleteAlertOpen} onOpenChange={setIsDeleteAlertOpen}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Voulez-vous vraiment supprimer votre compte ?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Cette action est définitive et irréversible. Toutes vos données (profil, messages, etc.) seront supprimées de nos serveurs.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Annuler</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDeleteAccount} className={buttonVariants({ variant: "destructive" })}>
+                                Oui, supprimer mon compte
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            </div>
+        );
+    }
     
     return (
         <div className="h-full flex flex-row bg-muted/40 dark:bg-gray-800/20">
             <div className="w-1/3 max-w-sm border-r bg-background p-4 flex flex-col">
                 <h2 className="text-2xl font-bold p-2 mb-4">Paramètres</h2>
                 <nav className="flex flex-col gap-1 flex-1">
-                    <SettingsItem icon={<User size={20}/>} title="Profil" subtitle="Gérer vos informations" onClick={() => setActiveSection('profile')} isActive={activeSection === 'profile'} />
-                    <SettingsItem icon={<Palette size={20}/>} title="Apparence" subtitle="Personnaliser l'interface" onClick={() => setActiveSection('appearance')} isActive={activeSection === 'appearance'} />
-                    <SettingsItem icon={<Lock size={20}/>} title="Confidentialité" subtitle="Gérer vos données" onClick={() => setActiveSection('privacy')} isActive={activeSection === 'privacy'} />
-                    <SettingsItem icon={<Bell size={20}/>} title="Notifications" subtitle="Ajuster les alertes" onClick={() => setActiveSection('notifications')} isActive={activeSection === 'notifications'} />
-                    <SettingsItem icon={<Trash2 size={20}/>} title="Compte" subtitle="Supprimer vos données" onClick={() => setActiveSection('account')} isActive={activeSection === 'account'} />
+                    <SettingsItem icon={<User size={20}/>} title="Profil" subtitle="Gérer vos informations" onClick={() => handleItemClick('profile')} isActive={activeSection === 'profile'} />
+                    <SettingsItem icon={<Palette size={20}/>} title="Apparence" subtitle="Personnaliser l'interface" onClick={() => handleItemClick('appearance')} isActive={activeSection === 'appearance'} />
+                    <SettingsItem icon={<Lock size={20}/>} title="Confidentialité" subtitle="Gérer vos données" onClick={() => handleItemClick('privacy')} isActive={activeSection === 'privacy'} />
+                    <SettingsItem icon={<Bell size={20}/>} title="Notifications" subtitle="Ajuster les alertes" onClick={() => handleItemClick('notifications')} isActive={activeSection === 'notifications'} />
+                    <SettingsItem icon={<Trash2 size={20}/>} title="Compte" subtitle="Supprimer vos données" onClick={() => handleItemClick('account')} isActive={activeSection === 'account'} />
                 </nav>
                  <Button variant="ghost" onClick={onLogout} className="w-full justify-start text-red-500 hover:text-red-500 hover:bg-red-500/10">
                     <LogOut size={18} className="mr-3"/> Se déconnecter
@@ -1422,6 +1542,7 @@ const FicheApp = () => {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [activeCommunityChat, setActiveCommunityChat] = useState<Community | null>(null);
   const { toast } = useToast();
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -1493,60 +1614,90 @@ const FicheApp = () => {
   if (activeCommunityChat) {
     return <CommunityChatRoom community={activeCommunityChat} onBack={() => setActiveCommunityChat(null)} currentUser={currentUser} />;
   }
+  
+  const BottomNav = () => (
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-background border-t z-10">
+        <div className="flex justify-around">
+            <button onClick={() => setActiveTab('chat')} className={`flex flex-col items-center justify-center h-16 w-full ${activeTab === 'chat' ? 'text-primary' : 'text-muted-foreground'}`}>
+                <MessageCircle size={24} />
+                <span className="text-xs mt-1">Chat</span>
+            </button>
+             <button onClick={() => setActiveTab('communities')} className={`flex flex-col items-center justify-center h-16 w-full ${activeTab === 'communities' ? 'text-primary' : 'text-muted-foreground'}`}>
+                <Users size={24} />
+                <span className="text-xs mt-1">Communautés</span>
+            </button>
+             <button onClick={() => setActiveTab('messages')} className={`flex flex-col items-center justify-center h-16 w-full ${activeTab === 'messages' ? 'text-primary' : 'text-muted-foreground'}`}>
+                <Mail size={24} />
+                <span className="text-xs mt-1">Messages</span>
+            </button>
+             <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center justify-center h-16 w-full ${activeTab === 'settings' ? 'text-primary' : 'text-muted-foreground'}`}>
+                <Settings size={24} />
+                <span className="text-xs mt-1">Paramètres</span>
+            </button>
+        </div>
+    </nav>
+);
 
   return (
     <AudioPlayerProvider>
-      <div className="flex h-screen bg-background text-foreground">
-        <aside className="w-64 flex flex-col bg-white dark:bg-gray-900 border-r border-border p-4">
-          <div className="flex items-center gap-2 mb-8">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Brain size={24} className="text-primary"/>
-            </div>
-            <h1 className="text-2xl font-bold font-headline text-primary">FICHE</h1>
-          </div>
-          <nav className="flex-1 space-y-2">
-            <Button variant={activeTab === 'chat' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('chat')}>
-              <MessageCircle size={18} className="mr-3"/>
-              Chat IA
-            </Button>
-            <Button variant={activeTab === 'communities' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('communities')}>
-              <Users size={18} className="mr-3"/>
-              Communautés
-            </Button>
-            <Button variant={activeTab === 'messages' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('messages')}>
-              <Mail size={18} className="mr-3"/>
-              Messages
-            </Button>
-            <Button variant={activeTab === 'settings' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('settings')}>
-              <Settings size={18} className="mr-3"/>
-              Paramètres
-            </Button>
-          </nav>
-          <div className="mt-auto">
-            <Separator className="my-4"/>
-            <div className="flex items-center gap-3">
-               <Avatar>
-                <AvatarImage src={currentUser?.photoURL || ''} />
-                <AvatarFallback>{currentUser?.displayName?.charAt(0) || 'U'}</AvatarFallback>
-              </Avatar>
-              <div className="flex-1 truncate">
-                <p className="font-semibold truncate">{currentUser?.displayName || 'Utilisateur'}</p>
-                <p className="text-sm text-muted-foreground truncate">{currentUser?.email}</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="flex-shrink-0">
-                  <LogOut size={18}/>
-                  <span className="sr-only">Déconnexion</span>
-              </Button>
-            </div>
-          </div>
-        </aside>
+      <div className="h-screen bg-background text-foreground overflow-hidden">
+        <div className="flex h-full">
+            {/* Desktop Sidebar */}
+            <aside className="w-64 flex-col bg-white dark:bg-gray-900 border-r border-border p-4 hidden md:flex">
+                <div className="flex items-center gap-2 mb-8">
+                    <div className="p-2 bg-primary/10 rounded-lg">
+                    <Brain size={24} className="text-primary"/>
+                    </div>
+                    <h1 className="text-2xl font-bold font-headline text-primary">FICHE</h1>
+                </div>
+                <nav className="flex-1 space-y-2">
+                    <Button variant={activeTab === 'chat' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('chat')}>
+                    <MessageCircle size={18} className="mr-3"/>
+                    Chat IA
+                    </Button>
+                    <Button variant={activeTab === 'communities' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('communities')}>
+                    <Users size={18} className="mr-3"/>
+                    Communautés
+                    </Button>
+                    <Button variant={activeTab === 'messages' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('messages')}>
+                    <Mail size={18} className="mr-3"/>
+                    Messages
+                    </Button>
+                    <Button variant={activeTab === 'settings' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setActiveTab('settings')}>
+                    <Settings size={18} className="mr-3"/>
+                    Paramètres
+                    </Button>
+                </nav>
+                <div className="mt-auto">
+                    <Separator className="my-4"/>
+                    <div className="flex items-center gap-3">
+                    <Avatar>
+                        <AvatarImage src={currentUser?.photoURL || ''} />
+                        <AvatarFallback>{currentUser?.displayName?.charAt(0) || 'U'}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 truncate">
+                        <p className="font-semibold truncate">{currentUser?.displayName || 'Utilisateur'}</p>
+                        <p className="text-sm text-muted-foreground truncate">{currentUser?.email}</p>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={handleLogout} className="flex-shrink-0">
+                        <LogOut size={18}/>
+                        <span className="sr-only">Déconnexion</span>
+                    </Button>
+                    </div>
+                </div>
+            </aside>
 
-        <main className="flex-1 flex flex-col">
-          {activeTab === 'chat' && <ChatInterface currentUser={currentUser} />}
-          {activeTab === 'communities' && <CommunitiesTab currentUser={currentUser} onEnterCommunity={handleEnterCommunity} />}
-          {activeTab === 'messages' && <MessagesTab currentUser={currentUser}/>}
-          {activeTab === 'settings' && <SettingsTab theme={theme} setTheme={setTheme} currentUser={currentUser} onLogout={handleLogout} />}
-        </main>
+            {/* Main Content */}
+            <main className="flex-1 flex flex-col pb-16 md:pb-0">
+                {activeTab === 'chat' && <ChatInterface currentUser={currentUser} />}
+                {activeTab === 'communities' && <CommunitiesTab currentUser={currentUser} onEnterCommunity={handleEnterCommunity} />}
+                {activeTab === 'messages' && <MessagesTab currentUser={currentUser}/>}
+                {activeTab === 'settings' && <SettingsTab theme={theme} setTheme={setTheme} currentUser={currentUser} onLogout={handleLogout} />}
+            </main>
+
+            {/* Mobile Bottom Nav */}
+            <BottomNav />
+        </div>
       </div>
     </AudioPlayerProvider>
   );
