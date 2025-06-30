@@ -28,7 +28,13 @@ import {
   Link as LinkIcon,
   PlusCircle,
   CheckCircle2,
-  File as FileIcon
+  File as FileIcon,
+  MoreHorizontal,
+  LogIn,
+  Palette,
+  Lock,
+  Bell,
+  HelpCircle
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -48,7 +54,9 @@ import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTime
 import { ref as rtdbRef, onValue, push, serverTimestamp as rtdbServerTimestamp, off } from "firebase/database";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from '@/components/ui/separator';
@@ -109,7 +117,7 @@ type AppUser = {
   photoURL?: string;
 };
 
-type ActiveTab = 'chat' | 'communities' | 'messages' | 'settings';
+type ActiveTab = 'chat' | 'communities' | 'files' | 'messages' | 'settings';
 
 // --- Global Audio Player ---
 const AudioPlayerContext = React.createContext<{
@@ -468,8 +476,10 @@ const ChatInterface = ({currentUser}: {currentUser: FirebaseUser}) => {
 const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: FirebaseUser, onEnterCommunity: (community: Community) => void }) => {
     const [communities, setCommunities] = useState<Community[]>([]);
     const [myCommunities, setMyCommunities] = useState<Community[]>([]);
-    const [isCreateCommunityOpen, setIsCreateCommunityOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [communityToEdit, setCommunityToEdit] = useState<Community | null>(null);
+    const [communityToDelete, setCommunityToDelete] = useState<Community | null>(null);
+    const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
     const { toast } = useToast();
 
     useEffect(() => {
@@ -510,8 +520,52 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
       }
     };
 
+    const handleDeleteCommunity = async () => {
+        if (!communityToDelete) return;
+        try {
+            await deleteDoc(doc(db, 'communities', communityToDelete.id));
+            toast({ title: "Succès", description: `La communauté "${communityToDelete.name}" a été supprimée.`});
+            setCommunityToDelete(null);
+        } catch (error) {
+            console.error("Erreur de suppression:", error);
+            toast({ variant: 'destructive', title: 'Erreur', description: "La suppression a échoué." });
+        }
+    };
+
     const filteredCommunities = communities.filter(community =>
         community.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    const MyCommunityCard = ({ community }: { community: Community }) => (
+      <div className="group relative text-center">
+        <div onClick={() => onEnterCommunity(community)} className="cursor-pointer flex flex-col items-center">
+          <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
+            <AvatarImage src={community.imageUrl} data-ai-hint="logo community" />
+            <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
+          </Avatar>
+          <p className="font-semibold">{community.name}</p>
+        </div>
+        {community.ownerId === currentUser.uid && (
+            <div className="absolute top-0 right-0">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+                            <MoreHorizontal size={18} />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setCommunityToEdit(community)}>
+                            <PenSquare size={16} className="mr-2" /> Modifier
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-destructive" onClick={() => setCommunityToDelete(community)}>
+                            <Trash2 size={16} className="mr-2" /> Supprimer
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+        )}
+      </div>
     );
 
     return (
@@ -529,7 +583,7 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
                             className="pl-8 w-64 bg-background"
                         />
                     </div>
-                    <Button onClick={() => setIsCreateCommunityOpen(true)}>
+                    <Button onClick={() => setIsCreateDialogOpen(true)}>
                         <Plus size={16} className="mr-2" />
                         Créer
                     </Button>
@@ -540,15 +594,7 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
                 <div className="mb-8">
                     <h3 className="text-xl font-semibold mb-4">Mes communautés</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-                        {myCommunities.map(community => (
-                            <div key={community.id} onClick={() => onEnterCommunity(community)} className="group relative flex flex-col items-center text-center cursor-pointer">
-                                <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
-                                    <AvatarImage src={community.imageUrl} data-ai-hint="logo community" />
-                                    <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
-                                </Avatar>
-                                <p className="font-semibold">{community.name}</p>
-                            </div>
-                        ))}
+                        {myCommunities.map(community => <MyCommunityCard key={community.id} community={community} />)}
                     </div>
                     <Separator className="mt-8"/>
                 </div>
@@ -584,17 +630,56 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
                     <p className="text-sm">Revenez plus tard ou créez la vôtre !</p>
                 </div>
             )}
-            <CreateCommunityDialog isOpen={isCreateCommunityOpen} onOpenChange={setIsCreateCommunityOpen} currentUser={currentUser} />
+            <CommunityFormDialog 
+              isOpen={isCreateDialogOpen || !!communityToEdit} 
+              onOpenChange={(isOpen) => {
+                if (!isOpen) {
+                  setIsCreateDialogOpen(false);
+                  setCommunityToEdit(null);
+                }
+              }} 
+              currentUser={currentUser} 
+              community={communityToEdit}
+            />
+             <AlertDialog open={!!communityToDelete} onOpenChange={() => setCommunityToDelete(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Êtes-vous absolument sûr?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Cette action est irréversible. La communauté "{communityToDelete?.name}" et toutes ses données seront supprimées.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setCommunityToDelete(null)}>Annuler</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteCommunity} className={buttonVariants({ variant: "destructive" })}>
+                            Supprimer
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };
 
-const CreateCommunityDialog = ({ isOpen, onOpenChange, currentUser }: { isOpen: boolean, onOpenChange: (open: boolean) => void, currentUser: FirebaseUser | null }) => {
+const CommunityFormDialog = ({ isOpen, onOpenChange, currentUser, community }: { isOpen: boolean, onOpenChange: (open: boolean) => void, currentUser: FirebaseUser | null, community: Community | null }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const isEditMode = !!community;
+
+  useEffect(() => {
+    if (isOpen) {
+      if (isEditMode && community) {
+        setName(community.name);
+        setDescription(community.description);
+      } else {
+        setName('');
+        setDescription('');
+      }
+    }
+  }, [community, isEditMode, isOpen]);
   
   const handleGenerateDescription = async () => {
     if (!name.trim()) {
@@ -613,34 +698,35 @@ const CreateCommunityDialog = ({ isOpen, onOpenChange, currentUser }: { isOpen: 
     }
   };
   
-  const handleCreate = async () => {
+  const handleSave = async () => {
       if (!name.trim() || !description.trim() || !currentUser) {
           toast({ variant: "destructive", title: "Erreur", description: "Le nom et la description sont requis." });
           return;
       }
-      setIsCreating(true);
+      setIsSubmitting(true);
       try {
-          const placeholderImageUrl = `https://placehold.co/200x200.png`;
-          
-          await addDoc(collection(db, 'communities'), {
-              name,
-              description,
-              ownerId: currentUser.uid,
-              createdAt: serverTimestamp(),
-              imageUrl: placeholderImageUrl,
-              members: [currentUser.uid],
-          });
-          
-          toast({ title: "Communauté créée", description: `La communauté "${name}" a été créée avec succès.` });
+          if (isEditMode && community) {
+              const communityRef = doc(db, 'communities', community.id);
+              await updateDoc(communityRef, { name, description });
+              toast({ title: "Communauté modifiée", description: `La communauté "${name}" a été mise à jour.` });
+          } else {
+              const placeholderImageUrl = `https://placehold.co/200x200.png`;
+              await addDoc(collection(db, 'communities'), {
+                  name,
+                  description,
+                  ownerId: currentUser.uid,
+                  createdAt: serverTimestamp(),
+                  imageUrl: placeholderImageUrl,
+                  members: [currentUser.uid],
+              });
+              toast({ title: "Communauté créée", description: `La communauté "${name}" a été créée avec succès.` });
+          }
           onOpenChange(false);
-          setName('');
-          setDescription('');
-
       } catch (error) {
-          console.error("Error creating community:", error);
-          toast({ variant: "destructive", title: "Erreur", description: "La création de la communauté a échoué." });
+          console.error("Error saving community:", error);
+          toast({ variant: "destructive", title: "Erreur", description: `L'enregistrement de la communauté a échoué.` });
       } finally {
-          setIsCreating(false);
+          setIsSubmitting(false);
       }
   };
 
@@ -648,9 +734,9 @@ const CreateCommunityDialog = ({ isOpen, onOpenChange, currentUser }: { isOpen: 
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Créer une nouvelle communauté</DialogTitle>
+          <DialogTitle>{isEditMode ? 'Modifier la communauté' : 'Créer une nouvelle communauté'}</DialogTitle>
           <DialogDescription>
-              Donnez un nom à votre communauté et décrivez-la pour attirer des membres.
+              {isEditMode ? 'Modifiez les informations de votre communauté.' : 'Donnez un nom à votre communauté et décrivez-la pour attirer des membres.'}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
@@ -670,8 +756,8 @@ const CreateCommunityDialog = ({ isOpen, onOpenChange, currentUser }: { isOpen: 
             </div>
         </div>
         <DialogFooter>
-            <Button onClick={handleCreate} disabled={isCreating || !name.trim() || !description.trim()}>
-                {isCreating ? 'Création en cours...' : 'Créer la communauté'}
+            <Button onClick={handleSave} disabled={isSubmitting || !name.trim() || !description.trim()}>
+                {isSubmitting ? 'Enregistrement...' : (isEditMode ? 'Enregistrer les modifications' : 'Créer la communauté')}
             </Button>
         </DialogFooter>
       </DialogContent>
@@ -940,7 +1026,6 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
     const [filter, setFilter] = useState<'inbox' | 'sent' | 'unread'>('inbox');
     const [isComposing, setIsComposing] = useState(false);
     const [fetchError, setFetchError] = useState<string | null>(null);
-    const { toast } = useToast();
 
     useEffect(() => {
         const usersCol = collection(db, 'users');
@@ -958,14 +1043,14 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
             setMessages([]);
             return;
         }
-        
+
         const messagesRef = collection(db, 'messages');
         const q = query(messagesRef, where('participantUids', 'array-contains', currentUser.uid));
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setFetchError(null);
-            const allMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage));
-            allMessages.sort((a, b) => (b.timestamp?.toDate().getTime() || 0) - (a.timestamp?.toDate().getTime() || 0));
+            const allMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage))
+            .sort((a, b) => (b.timestamp?.toDate().getTime() || 0) - (a.timestamp?.toDate().getTime() || 0));
             setMessages(allMessages);
         }, (error: any) => {
             console.error("Error fetching messages:", error);
@@ -1050,56 +1135,143 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
 };
   
 // --- Settings Component ---
-const SettingsTab = ({theme, setTheme, currentUser}: {theme: 'light' | 'dark', setTheme: (theme: 'light' | 'dark') => void, currentUser: FirebaseUser}) => (
-  <div className="h-full p-6 bg-muted/40 dark:bg-gray-800/20 overflow-y-auto">
-      <h2 className="text-2xl font-bold mb-6">Paramètres</h2>
-      <div className="space-y-8 max-w-2xl mx-auto">
-          <div className="bg-background dark:bg-gray-800 p-6 rounded-lg">
-              <h3 className="text-lg font-semibold mb-4">Profil</h3>
-              <div className="flex items-center gap-6">
-                  <Avatar className="w-24 h-24">
-                     <AvatarImage src={currentUser.photoURL || undefined} />
-                     <AvatarFallback><User size={40}/></AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 space-y-4">
-                      <div>
-                          <label className="text-sm font-medium">Nom complet</label>
-                          <Input defaultValue={currentUser?.displayName || ''} readOnly />
-                      </div>
-                      <div>
-                          <label className="text-sm font-medium">Adresse e-mail</label>
-                          <Input defaultValue={currentUser?.email || ''} readOnly />
-                      </div>
-                  </div>
-              </div>
-          </div>
-
-          <div className="bg-background dark:bg-gray-800 p-6 rounded-lg">
-              <h3 className="text-lg font-semibold mb-4">Apparence</h3>
-              <div className="flex items-center justify-between">
-                  <div>
-                      <p className="font-medium">Thème sombre</p>
-                      <p className="text-sm text-muted-foreground">Activez le mode sombre pour une expérience visuelle différente.</p>
-                  </div>
-                  <Switch
-                      checked={theme === 'dark'}
-                      onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
-                      aria-label="Activer le thème sombre"
-                  />
-              </div>
-          </div>
-
-          <div className="bg-background dark:bg-gray-800 p-6 rounded-lg">
-              <h3 className="text-lg font-semibold mb-4">Compte</h3>
-               <div className="space-y-4">
-                   <Button variant="destructive">
-                      Supprimer le compte
-                  </Button>
-              </div>
-          </div>
-      </div>
-  </div>
+const SettingsItem = ({ icon, title, subtitle, onClick, isActive }: { icon: React.ReactNode, title: string, subtitle?: string, onClick: () => void, isActive: boolean }) => (
+    <Button
+        variant={isActive ? 'secondary' : 'ghost'}
+        onClick={onClick}
+        className="w-full justify-start h-auto py-3 px-3"
+    >
+        <div className="flex items-center gap-4">
+            <div className="text-muted-foreground">{icon}</div>
+            <div className="text-left">
+                <p className="font-semibold text-foreground">{title}</p>
+                {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
+            </div>
+        </div>
+    </Button>
 );
+
+const SettingsTab = ({theme, setTheme, currentUser, onLogout}: {theme: 'light' | 'dark', setTheme: (theme: 'light' | 'dark') => void, currentUser: FirebaseUser, onLogout: () => void}) => {
+    const [activeSection, setActiveSection] = useState('profile');
+    const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState(false);
+    const { toast } = useToast();
+
+    const handleDeleteAccount = async () => {
+        try {
+            // This is a simplified deletion. A complete solution would use Cloud Functions
+            // to delete all user-related data (messages, communities owned, etc.)
+            await deleteDoc(doc(db, 'users', currentUser.uid));
+            toast({ title: 'Compte supprimé', description: 'Vos données ont été supprimées de Firestore.' });
+            onLogout();
+        } catch (error) {
+            console.error("Error deleting account data:", error);
+            toast({ variant: 'destructive', title: 'Erreur', description: 'Impossible de supprimer les données du compte.' });
+        }
+    };
+    
+    const renderContent = () => {
+        switch (activeSection) {
+            case 'profile':
+                return (
+                    <div className="space-y-6">
+                        <h3 className="text-xl font-bold">Profil</h3>
+                        <div className="flex items-center gap-6">
+                            <Avatar className="w-24 h-24">
+                                <AvatarImage src={currentUser.photoURL || undefined} />
+                                <AvatarFallback><User size={40}/></AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 space-y-4">
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground">Nom complet</label>
+                                    <Input defaultValue={currentUser?.displayName || ''} readOnly className="mt-1" />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground">Adresse e-mail</label>
+                                    <Input defaultValue={currentUser?.email || ''} readOnly className="mt-1" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            case 'appearance':
+                return (
+                    <div className="space-y-6">
+                        <h3 className="text-xl font-bold">Apparence</h3>
+                        <div className="flex items-center justify-between p-4 border rounded-lg">
+                            <div>
+                                <p className="font-medium">Thème sombre</p>
+                                <p className="text-sm text-muted-foreground">Activez le mode sombre pour une expérience visuelle différente.</p>
+                            </div>
+                            <Switch
+                                checked={theme === 'dark'}
+                                onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+                                aria-label="Activer le thème sombre"
+                            />
+                        </div>
+                    </div>
+                );
+            case 'account':
+                return (
+                     <div className="space-y-6">
+                        <h3 className="text-xl font-bold">Compte</h3>
+                        <div className="p-4 border border-destructive/50 rounded-lg">
+                            <h4 className="font-semibold text-destructive">Zone de danger</h4>
+                            <p className="text-sm text-muted-foreground mt-1 mb-4">La suppression de votre compte est une action irréversible.</p>
+                            <Button variant="destructive" onClick={() => setIsDeleteAlertOpen(true)}>
+                                Supprimer le compte
+                            </Button>
+                        </div>
+                    </div>
+                );
+            default:
+                return (
+                    <div className="text-center text-muted-foreground">
+                        <h3 className="text-xl font-bold">{activeSection.charAt(0).toUpperCase() + activeSection.slice(1)}</h3>
+                        <p>Cette section sera bientôt disponible.</p>
+                    </div>
+                );
+        }
+    };
+    
+    return (
+        <div className="h-full flex flex-row bg-muted/40 dark:bg-gray-800/20">
+            <div className="w-1/3 max-w-sm border-r bg-background p-4 flex flex-col">
+                <h2 className="text-2xl font-bold p-2 mb-4">Paramètres</h2>
+                <nav className="flex flex-col gap-1 flex-1">
+                    <SettingsItem icon={<User size={20}/>} title="Profil" subtitle="Gérer vos informations" onClick={() => setActiveSection('profile')} isActive={activeSection === 'profile'} />
+                    <SettingsItem icon={<Palette size={20}/>} title="Apparence" subtitle="Personnaliser l'interface" onClick={() => setActiveSection('appearance')} isActive={activeSection === 'appearance'} />
+                    <SettingsItem icon={<Lock size={20}/>} title="Confidentialité" subtitle="Gérer vos données" onClick={() => setActiveSection('privacy')} isActive={activeSection === 'privacy'} />
+                    <SettingsItem icon={<Bell size={20}/>} title="Notifications" subtitle="Ajuster les alertes" onClick={() => setActiveSection('notifications')} isActive={activeSection === 'notifications'} />
+                    <SettingsItem icon={<Trash2 size={20}/>} title="Compte" subtitle="Supprimer vos données" onClick={() => setActiveSection('account')} isActive={activeSection === 'account'} />
+                </nav>
+                 <Button variant="ghost" onClick={onLogout} className="w-full justify-start text-red-500 hover:text-red-500 hover:bg-red-500/10">
+                    <LogOut size={18} className="mr-3"/> Se déconnecter
+                 </Button>
+            </div>
+            <main className="flex-1 p-8 overflow-y-auto">
+                {renderContent()}
+            </main>
+
+            <AlertDialog open={isDeleteAlertOpen} onOpenChange={setIsDeleteAlertOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Voulez-vous vraiment supprimer votre compte ?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Cette action est définitive et irréversible. Toutes vos données (profil, messages, etc.) seront supprimées de nos serveurs.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Annuler</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteAccount} className={buttonVariants({ variant: "destructive" })}>
+                            Oui, supprimer mon compte
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </div>
+    );
+};
+
 
 // --- Main App Component ---
 const FicheApp = () => {
@@ -1232,7 +1404,7 @@ const FicheApp = () => {
           {activeTab === 'chat' && <ChatInterface currentUser={currentUser} />}
           {activeTab === 'communities' && <CommunitiesTab currentUser={currentUser} onEnterCommunity={handleEnterCommunity} />}
           {activeTab === 'messages' && <MessagesTab currentUser={currentUser}/>}
-          {activeTab === 'settings' && <SettingsTab theme={theme} setTheme={setTheme} currentUser={currentUser} />}
+          {activeTab === 'settings' && <SettingsTab theme={theme} setTheme={setTheme} currentUser={currentUser} onLogout={handleLogout} />}
         </main>
       </div>
     </AudioPlayerProvider>
