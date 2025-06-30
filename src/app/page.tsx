@@ -34,7 +34,9 @@ import {
   Palette,
   Lock,
   Bell,
-  HelpCircle
+  HelpCircle,
+  Check,
+  CheckCheck
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -57,7 +59,7 @@ import {
 } from "firebase/auth";
 import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where, getDocs, Timestamp, arrayUnion, arrayRemove, deleteDoc, writeBatch } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
-import { ref as rtdbRef, onValue, push, serverTimestamp as rtdbServerTimestamp, off } from "firebase/database";
+import { ref as rtdbRef, onValue, push, serverTimestamp as rtdbServerTimestamp, off, update } from "firebase/database";
 
 // ShadCN UI Components
 import { Switch } from "@/components/ui/switch";
@@ -126,6 +128,7 @@ type CommunityMessage = {
   fromName: string;
   content: string;
   timestamp: number;
+  readBy?: { [uid: string]: boolean };
 };
 
 type AppUser = {
@@ -976,6 +979,32 @@ const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Comm
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Mark messages as read
+  useEffect(() => {
+    if (!currentUser || messages.length === 0 || !community.members.includes(currentUser.uid)) return;
+
+    const messagesToMarkAsRead = messages.filter(msg => msg.id && (!msg.readBy || !msg.readBy[currentUser.uid]));
+    
+    if (messagesToMarkAsRead.length > 0) {
+        const updates: { [key: string]: any } = {};
+        messagesToMarkAsRead.forEach(msg => {
+            updates[`/communities/${community.id}/messages/${msg.id}/readBy/${currentUser.uid}`] = true;
+        });
+
+        const markAsRead = async () => {
+            try {
+                await update(rtdbRef(rtdb), updates);
+            } catch (error) {
+                console.error("Error marking messages as read:", error);
+            }
+        };
+
+        const timeoutId = setTimeout(markAsRead, 1500);
+        return () => clearTimeout(timeoutId);
+    }
+}, [messages, community.id, community.members, currentUser]);
+
+
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !currentUser) return;
 
@@ -984,6 +1013,7 @@ const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Comm
       fromName: currentUser.displayName || 'Anonyme',
       content: newMessage,
       timestamp: rtdbServerTimestamp(),
+      readBy: { [currentUser.uid]: true },
     };
 
     try {
@@ -1012,16 +1042,26 @@ const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Comm
           ) : messages.length === 0 ? (
             <div className="text-center text-muted-foreground">Aucun message. Soyez le premier !</div>
           ) : (
-            messages.map((msg) => (
-              <div key={msg.id} className={`flex items-end gap-2 ${msg.from === currentUser?.uid ? 'justify-end' : 'justify-start'}`}>
-                {msg.from !== currentUser?.uid && <Avatar className="w-8 h-8 self-start"><AvatarFallback>{msg.fromName.charAt(0)}</AvatarFallback></Avatar>}
-                <div className={`max-w-md rounded-xl px-4 py-2 ${msg.from === currentUser?.uid ? 'bg-primary text-primary-foreground' : 'bg-background dark:bg-gray-800'}`}>
-                  {msg.from !== currentUser?.uid && <div className="text-xs font-bold text-primary mb-1">{msg.fromName}</div>}
+            messages.map((msg) => {
+              const isMyMessage = msg.from === currentUser?.uid;
+              const isRead = msg.readBy ? Object.keys(msg.readBy).length > 1 : false;
+
+              return (
+              <div key={msg.id} className={`flex items-end gap-2 ${isMyMessage ? 'justify-end' : 'justify-start'}`}>
+                {!isMyMessage && <Avatar className="w-8 h-8 self-start"><AvatarFallback>{msg.fromName.charAt(0)}</AvatarFallback></Avatar>}
+                <div className={`max-w-md rounded-xl px-4 py-2 ${isMyMessage ? 'bg-primary text-primary-foreground' : 'bg-background dark:bg-gray-800'}`}>
+                  {!isMyMessage && <div className="text-xs font-bold text-primary mb-1">{msg.fromName}</div>}
                   <p>{msg.content}</p>
-                  <p className="text-xs opacity-70 mt-1 text-right">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                  <div className="flex items-center justify-end gap-2 text-xs opacity-70 mt-1">
+                    <p>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                    {isMyMessage && (
+                       isRead ? <CheckCheck size={16} className="text-sky-400" /> : <Check size={16} />
+                    )}
+                  </div>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
           <div ref={messagesEndRef} />
         </div>
