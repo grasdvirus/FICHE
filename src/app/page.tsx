@@ -584,28 +584,28 @@ const ChatInterface = ({currentUser}: {currentUser: FirebaseUser}) => {
         )}
       </div>
       <div className="p-4 bg-background dark:bg-gray-900/50 border-t border-border">
-        <div className="relative flex items-center gap-2">
-          <div className="flex-1">
-            <Textarea
-              value={userText}
-              onChange={(e) => setUserText(e.target.value)}
-              placeholder="Tapez votre texte ici pour recevoir des suggestions..."
-              className="pr-12 bg-muted dark:bg-gray-800"
-              rows={2}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleTextSubmit();
-                }
-              }}
-            />
+        <div className="flex items-start gap-2">
+          <Textarea
+            value={userText}
+            onChange={(e) => setUserText(e.target.value)}
+            placeholder="Tapez votre texte ici..."
+            className="flex-1 resize-none bg-muted dark:bg-gray-800"
+            rows={1}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleTextSubmit();
+              }
+            }}
+          />
+          <div className="flex flex-col gap-1">
+            <Button variant="ghost" size="icon" onClick={handleNewChat} className="h-9 w-9">
+              <RotateCw size={18} />
+            </Button>
+            <Button onClick={handleTextSubmit} disabled={isLoading || !userText.trim()} className="h-9 w-9" size="icon">
+              <Send size={18} />
+            </Button>
           </div>
-          <Button variant="ghost" size="icon" onClick={handleNewChat} className="h-10 w-10">
-            <RotateCw size={18} />
-          </Button>
-          <Button onClick={handleTextSubmit} disabled={isLoading || !userText.trim()} className="h-10 w-10" size="icon">
-            <Send size={18} />
-          </Button>
         </div>
       </div>
     </div>
@@ -999,7 +999,7 @@ const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Comm
             onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
             className="bg-muted dark:bg-gray-800"
           />
-          <Button onClick={handleSendMessage} disabled={!newMessage.trim()} size="icon">
+          <Button onClick={handleSendMessage} disabled={!newMessage.trim()} size="icon" className="h-9 w-9 flex-shrink-0">
             <Send size={18} />
           </Button>
         </div>
@@ -1227,13 +1227,15 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
     }, [selectedMessageId, messages, currentUser.uid]);
 
     const filteredMessages = useMemo(() => {
+        let sortedMessages = [...messages].sort((a, b) => (b.timestamp?.toDate().getTime() || 0) - (a.timestamp?.toDate().getTime() || 0));
+        
         switch (filter) {
             case 'inbox':
-                return messages.filter(m => m.to === currentUser.uid);
+                return sortedMessages.filter(m => m.to === currentUser.uid);
             case 'sent':
-                return messages.filter(m => m.from === currentUser.uid);
+                return sortedMessages.filter(m => m.from === currentUser.uid);
             case 'unread':
-                return messages.filter(m => m.to === currentUser.uid && !m.isRead);
+                return sortedMessages.filter(m => m.to === currentUser.uid && !m.isRead);
             default:
                 return [];
         }
