@@ -25,7 +25,7 @@ import {
   FileText,
   Trash2,
   PenSquare,
-  Link as LinkIcon,
+  Image as ImageIcon,
   PlusCircle,
   CheckCircle2,
   File as FileIcon,
@@ -45,7 +45,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from '@/hooks/use-mobile';
 
 // Firebase
-import { auth, db, rtdb, googleProvider } from '@/lib/firebase';
+import { auth, db, rtdb, googleProvider, storage } from '@/lib/firebase';
 import {
   signInWithPopup,
   signOut,
@@ -55,7 +55,8 @@ import {
   signInWithEmailAndPassword,
   updateProfile
 } from "firebase/auth";
-import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where, getDocs, Timestamp, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
+import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where, getDocs, Timestamp, arrayUnion, arrayRemove, deleteDoc, writeBatch } from "firebase/firestore";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { ref as rtdbRef, onValue, push, serverTimestamp as rtdbServerTimestamp, off } from "firebase/database";
 
 // ShadCN UI Components
@@ -75,6 +76,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
 
 
 // --- Data Types ---
@@ -104,14 +106,18 @@ type EmailMessage = {
   id: string;
   from: string;
   to: string;
-  fromName: string;
-  toName: string;
-  subject: string;
   content: string;
   timestamp: Timestamp;
   isRead: boolean;
-  replyTo?: string | null;
   participantUids: string[];
+};
+
+type Conversation = {
+  id: string; // The other user's UID
+  otherUser: AppUser;
+  messages: EmailMessage[];
+  lastMessage: EmailMessage | null;
+  unreadCount: number;
 };
 
 type CommunityMessage = {
@@ -130,6 +136,17 @@ type AppUser = {
 };
 
 type ActiveTab = 'chat' | 'communities' | 'files' | 'messages' | 'settings';
+
+// --- Helpers ---
+const formatFollowerCount = (num: number): string => {
+  if (!num) return '0 membres';
+  if (num === 1) return '1 membre';
+  if (num >= 1000) {
+    const formatted = (num / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 });
+    return `${formatted} K membres`;
+  }
+  return `${num} membres`;
+};
 
 // --- Global Audio Player ---
 const AudioPlayerContext = React.createContext<{
@@ -680,35 +697,17 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
         community.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const MyCommunityCard = ({ community }: { community: Community }) => (
+    const CommunityCard = ({ community, onClick, children }: { community: Community, onClick: () => void, children?: React.ReactNode }) => (
       <div className="group relative text-center">
-        <div onClick={() => onEnterCommunity(community)} className="cursor-pointer flex flex-col items-center">
+        <div onClick={onClick} className="cursor-pointer flex flex-col items-center">
           <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
             <AvatarImage src={community.imageUrl} data-ai-hint="logo community" />
             <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
           </Avatar>
           <p className="font-semibold">{community.name}</p>
+          <p className="text-xs text-muted-foreground">{formatFollowerCount(community.members.length)}</p>
         </div>
-        {community.ownerId === currentUser.uid && (
-            <div className="absolute top-0 right-0">
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
-                            <MoreHorizontal size={18} />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setCommunityToEdit(community)}>
-                            <PenSquare size={16} className="mr-2" /> Modifier
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive" onClick={() => setCommunityToDelete(community)}>
-                            <Trash2 size={16} className="mr-2" /> Supprimer
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
-        )}
+        {children}
       </div>
     );
 
@@ -739,7 +738,30 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
                         <div className="mb-8">
                             <h3 className="text-xl font-semibold mb-4">Mes communautés</h3>
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
-                                {myCommunities.map(community => <MyCommunityCard key={community.id} community={community} />)}
+                                {myCommunities.map(community => (
+                                    <CommunityCard key={community.id} community={community} onClick={() => onEnterCommunity(community)}>
+                                        {community.ownerId === currentUser.uid && (
+                                            <div className="absolute top-0 right-0">
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+                                                            <MoreHorizontal size={18} />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end">
+                                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setCommunityToEdit(community); }}>
+                                                            <PenSquare size={16} className="mr-2" /> Modifier
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuSeparator />
+                                                        <DropdownMenuItem className="text-destructive" onClick={(e) => { e.stopPropagation(); setCommunityToDelete(community); }}>
+                                                            <Trash2 size={16} className="mr-2" /> Supprimer
+                                                        </DropdownMenuItem>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            </div>
+                                        )}
+                                    </CommunityCard>
+                                ))}
                             </div>
                             <Separator className="mt-8"/>
                         </div>
@@ -751,19 +773,11 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
                             {filteredCommunities.map(community => {
                                 const isMember = myCommunities.some(mc => mc.id === community.id);
                                 return (
-                                    <div key={community.id} className="group relative flex flex-col items-center text-center">
-                                        <div onClick={() => handleSubscription(community.id, !isMember)} className="cursor-pointer">
-                                            <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
-                                                <AvatarImage src={community.imageUrl} data-ai-hint="logo community"/>
-                                                <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
-                                            </Avatar>
-                                        </div>
-                                        <button onClick={() => handleSubscription(community.id, !isMember)} className="absolute top-0 right-0 -mt-1 -mr-1 bg-background rounded-full p-1 shadow-md hover:scale-110 transition-transform">
+                                    <CommunityCard key={community.id} community={community} onClick={() => handleSubscription(community.id, !isMember)}>
+                                       <button onClick={(e) => { e.stopPropagation(); handleSubscription(community.id, !isMember); }} className="absolute top-0 right-0 -mt-1 -mr-1 bg-background rounded-full p-1 shadow-md hover:scale-110 transition-transform">
                                           {isMember ? <CheckCircle2 size={24} className="text-green-500" /> : <PlusCircle size={24} className="text-primary"/>}
                                         </button>
-                                        <p className="font-semibold">{community.name}</p>
-                                        <p className="text-sm text-muted-foreground line-clamp-2">{community.description}</p>
-                                    </div>
+                                    </CommunityCard>
                                 )
                             })}
                         </div>
@@ -812,8 +826,11 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
 const CommunityFormDialog = ({ isOpen, onOpenChange, currentUser, community }: { isOpen: boolean, onOpenChange: (open: boolean) => void, currentUser: FirebaseUser | null, community: Community | null }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [iconFile, setIconFile] = useState<File | null>(null);
+  const [iconPreview, setIconPreview] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const isEditMode = !!community;
 
@@ -822,10 +839,13 @@ const CommunityFormDialog = ({ isOpen, onOpenChange, currentUser, community }: {
       if (isEditMode && community) {
         setName(community.name);
         setDescription(community.description);
+        setIconPreview(community.imageUrl);
       } else {
         setName('');
         setDescription('');
+        setIconPreview(null);
       }
+      setIconFile(null);
     }
   }, [community, isEditMode, isOpen]);
   
@@ -845,6 +865,14 @@ const CommunityFormDialog = ({ isOpen, onOpenChange, currentUser, community }: {
       setIsGenerating(false);
     }
   };
+
+  const handleIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setIconFile(file);
+      setIconPreview(URL.createObjectURL(file));
+    }
+  };
   
   const handleSave = async () => {
       if (!name.trim() || !description.trim() || !currentUser) {
@@ -852,21 +880,35 @@ const CommunityFormDialog = ({ isOpen, onOpenChange, currentUser, community }: {
           return;
       }
       setIsSubmitting(true);
+      
       try {
+          let imageUrl = isEditMode ? community.imageUrl : 'https://placehold.co/200x200.png';
+          
           if (isEditMode && community) {
+              if (iconFile) {
+                  const imageRef = storageRef(storage, `community_icons/${community.id}`);
+                  await uploadBytes(imageRef, iconFile);
+                  imageUrl = await getDownloadURL(imageRef);
+              }
               const communityRef = doc(db, 'communities', community.id);
-              await updateDoc(communityRef, { name, description });
+              await updateDoc(communityRef, { name, description, imageUrl });
               toast({ title: "Communauté modifiée", description: `La communauté "${name}" a été mise à jour.` });
           } else {
-              const placeholderImageUrl = `https://placehold.co/200x200.png`;
-              await addDoc(collection(db, 'communities'), {
+              const newCommunityRef = await addDoc(collection(db, 'communities'), {
                   name,
                   description,
                   ownerId: currentUser.uid,
                   createdAt: serverTimestamp(),
-                  imageUrl: placeholderImageUrl,
+                  imageUrl, // placeholder for now
                   members: [currentUser.uid],
               });
+
+              if (iconFile) {
+                const imageRef = storageRef(storage, `community_icons/${newCommunityRef.id}`);
+                await uploadBytes(imageRef, iconFile);
+                imageUrl = await getDownloadURL(imageRef);
+                await updateDoc(newCommunityRef, { imageUrl });
+              }
               toast({ title: "Communauté créée", description: `La communauté "${name}" a été créée avec succès.` });
           }
           onOpenChange(false);
@@ -889,17 +931,30 @@ const CommunityFormDialog = ({ isOpen, onOpenChange, currentUser, community }: {
         </DialogHeader>
         <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-                <label htmlFor="name">Nom</label>
+                <Label htmlFor="name">Nom</Label>
                 <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div className="grid gap-2">
-                <label htmlFor="description">Description</label>
+                <Label htmlFor="description">Description</Label>
                 <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
                 <div className="flex justify-end">
                     <Button onClick={handleGenerateDescription} variant="ghost" size="sm" disabled={isGenerating}>
                         <Sparkles className="w-4 h-4 mr-2"/>
                         {isGenerating ? 'Génération...' : 'Générer avec l\'IA'}
                     </Button>
+                </div>
+            </div>
+             <div className="grid gap-2">
+                <Label>Icône de la communauté</Label>
+                <div className="flex items-center gap-4">
+                  <Avatar className="w-20 h-20">
+                    <AvatarImage src={iconPreview || community?.imageUrl} />
+                    <AvatarFallback><ImageIcon className="w-8 h-8 text-muted-foreground" /></AvatarFallback>
+                  </Avatar>
+                  <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
+                    Choisir une image
+                  </Button>
+                  <Input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleIconChange} />
                 </div>
             </div>
         </div>
@@ -1018,16 +1073,326 @@ const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Comm
 
 
 // --- Messages (Inbox-style) Components ---
-const NewMessageDialog = ({ isOpen, onOpenChange, currentUser, users }: { isOpen: boolean, onOpenChange: (open: boolean) => void, currentUser: FirebaseUser, users: AppUser[] }) => {
+const ConversationListItem = ({ conversation, onSelect, isSelected }: { conversation: Conversation, onSelect: () => void, isSelected: boolean }) => {
+    return (
+        <button
+            onClick={onSelect}
+            className={`w-full text-left p-3 border-b flex items-center gap-3 transition-colors ${isSelected ? 'bg-primary/10' : 'hover:bg-muted'}`}
+        >
+            <Avatar className="w-12 h-12">
+                <AvatarImage src={conversation.otherUser.photoURL} />
+                <AvatarFallback>{conversation.otherUser.name.charAt(0)}</AvatarFallback>
+            </Avatar>
+            <div className="flex-1 overflow-hidden">
+                <div className="flex justify-between items-center">
+                    <p className="font-semibold truncate">{conversation.otherUser.name}</p>
+                    {conversation.lastMessage && (
+                        <p className="text-xs text-muted-foreground whitespace-nowrap">
+                            {formatDistanceToNow(conversation.lastMessage.timestamp.toDate(), { addSuffix: true, locale: fr })}
+                        </p>
+                    )}
+                </div>
+                <div className="flex justify-between items-start">
+                    <p className="text-sm text-muted-foreground truncate flex-1">
+                        {conversation.lastMessage?.content || "Aucun message"}
+                    </p>
+                    {conversation.unreadCount > 0 && (
+                        <Badge variant="default" className="ml-2 h-5 px-1.5 text-xs rounded-full">
+                            {conversation.unreadCount}
+                        </Badge>
+                    )}
+                </div>
+            </div>
+        </button>
+    );
+};
+
+const ConversationDetail = ({ conversation, currentUser, onBack }: { conversation: Conversation, currentUser: FirebaseUser, onBack: () => void }) => {
+    const { toast } = useToast();
+    const [newMessage, setNewMessage] = useState('');
+    const [isSending, setIsSending] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const isMobile = useIsMobile();
+
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [conversation.messages]);
+
+    useEffect(() => {
+        // Mark messages as read when conversation is opened
+        const markAsRead = async () => {
+            const batch = writeBatch(db);
+            let unreadCount = 0;
+            conversation.messages.forEach(msg => {
+                if (msg.to === currentUser.uid && !msg.isRead) {
+                    const msgRef = doc(db, 'messages', msg.id);
+                    batch.update(msgRef, { isRead: true });
+                    unreadCount++;
+                }
+            });
+            if (unreadCount > 0) {
+                try {
+                    await batch.commit();
+                } catch (error) {
+                    console.error("Error marking messages as read:", error);
+                }
+            }
+        };
+        markAsRead();
+    }, [conversation.messages, currentUser.uid]);
+
+    const handleSendMessage = async () => {
+        if (!newMessage.trim()) return;
+        setIsSending(true);
+
+        try {
+            await addDoc(collection(db, 'messages'), {
+                from: currentUser.uid,
+                to: conversation.otherUser.uid,
+                content: newMessage,
+                timestamp: serverTimestamp(),
+                isRead: false,
+                participantUids: [currentUser.uid, conversation.otherUser.uid]
+            });
+            setNewMessage('');
+        } catch (error) {
+            console.error("Error sending message:", error);
+            toast({ variant: 'destructive', title: 'Erreur', description: "L'envoi du message a échoué." });
+        } finally {
+            setIsSending(false);
+        }
+    };
+    
+    return (
+        <div className="p-0 flex flex-col h-full bg-background">
+             <header className="flex items-center gap-4 p-3 border-b bg-background sticky top-0 z-10">
+                {isMobile && <Button variant="ghost" size="icon" onClick={onBack} className="-ml-2"><ArrowLeft size={20} /></Button>}
+                <Avatar>
+                    <AvatarImage src={conversation.otherUser.photoURL} />
+                    <AvatarFallback>{conversation.otherUser.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <h2 className="text-lg font-bold truncate">{conversation.otherUser.name}</h2>
+            </header>
+            <ScrollArea className="flex-1">
+                <div className="p-4 md:p-6 space-y-4">
+                    {conversation.messages.map(msg => (
+                         <div key={msg.id} className={`flex items-end gap-2 ${msg.from === currentUser.uid ? 'justify-end' : 'justify-start'}`}>
+                             {msg.from !== currentUser.uid && <Avatar className="w-8 h-8 self-start"><AvatarFallback>{conversation.otherUser.name.charAt(0)}</AvatarFallback></Avatar>}
+                             <div className={`max-w-lg rounded-xl px-4 py-2 ${msg.from === currentUser.uid ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
+                                 <p className="whitespace-pre-wrap">{msg.content}</p>
+                                 <p className="text-xs opacity-70 mt-1 text-right">{format(msg.timestamp.toDate(), 'HH:mm')}</p>
+                             </div>
+                         </div>
+                    ))}
+                    <div ref={messagesEndRef} />
+                </div>
+            </ScrollArea>
+            <div className="mt-auto p-4 border-t bg-background">
+                <div className="relative flex items-center gap-2">
+                    <Textarea 
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        placeholder="Écrire un message..."
+                        rows={1}
+                        className="resize-none"
+                        onKeyPress={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSendMessage();
+                            }
+                        }}
+                    />
+                    <Button onClick={handleSendMessage} disabled={!newMessage.trim() || isSending} size="icon" className="h-9 w-9 flex-shrink-0">
+                        {isSending ? "..." : <Send size={18} />}
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
+    const [users, setUsers] = useState<AppUser[]>([]);
+    const [conversations, setConversations] = useState<Conversation[]>([]);
+    const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+    const [isComposing, setIsComposing] = useState(false);
+    const [fetchError, setFetchError] = useState<string | null>(null);
+    const isMobile = useIsMobile();
+    const { toast } = useToast();
+
+    useEffect(() => {
+        const usersCol = collection(db, 'users');
+        const q = query(usersCol, where('uid', '!=', currentUser.uid));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setUsers(snapshot.docs.map(doc => doc.data() as AppUser));
+        }, (error) => {
+            console.error("Error fetching users:", error);
+        });
+        return () => unsubscribe();
+    }, [currentUser.uid]);
+
+    useEffect(() => {
+        if (!currentUser?.uid) {
+            setConversations([]);
+            return;
+        }
+
+        const messagesRef = collection(db, 'messages');
+        const q = query(messagesRef, where('participantUids', 'array-contains', currentUser.uid));
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setFetchError(null);
+            const allMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage));
+            
+            const conversationsMap = new Map<string, Conversation>();
+
+            allMessages.forEach(msg => {
+                const otherUserId = msg.from === currentUser.uid ? msg.to : msg.from;
+                if (!conversationsMap.has(otherUserId)) {
+                    const otherUser = users.find(u => u.uid === otherUserId);
+                    if (otherUser) {
+                        conversationsMap.set(otherUserId, {
+                            id: otherUserId,
+                            otherUser: otherUser,
+                            messages: [],
+                            lastMessage: null,
+                            unreadCount: 0
+                        });
+                    }
+                }
+
+                const conversation = conversationsMap.get(otherUserId);
+                if (conversation) {
+                    conversation.messages.push(msg);
+                }
+            });
+
+            conversationsMap.forEach(convo => {
+                convo.messages.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis());
+                convo.lastMessage = convo.messages[convo.messages.length - 1] || null;
+                convo.unreadCount = convo.messages.filter(m => m.to === currentUser.uid && !m.isRead).length;
+            });
+            
+            const sortedConversations = Array.from(conversationsMap.values())
+              .sort((a,b) => (b.lastMessage?.timestamp.toMillis() || 0) - (a.lastMessage?.timestamp.toMillis() || 0));
+
+            setConversations(sortedConversations);
+
+        }, (error: any) => {
+            console.error("Error fetching messages:", error);
+            if (error.code === 'permission-denied') {
+                setFetchError("Permission refusée. Vérifiez vos règles de sécurité Firestore.");
+            } else if (error.code === 'failed-precondition') {
+                 setFetchError("La requête nécessite un index Firestore. Créez-le via le lien dans la console du navigateur.");
+            }
+            else {
+                setFetchError('Une erreur est survenue lors du chargement des messages.');
+            }
+        });
+
+        return () => unsubscribe();
+    }, [currentUser.uid, users]);
+
+    const handleSelectConversation = (conversationId: string) => {
+      setSelectedConversationId(conversationId);
+      if (isMobile) {
+        // Mobile navigation will handle the view change
+      }
+    };
+
+    const selectedConversation = conversations.find(c => c.id === selectedConversationId);
+    
+    // Mobile View
+    if (isMobile) {
+        if (selectedConversation) {
+            return (
+                <ConversationDetail 
+                    conversation={selectedConversation}
+                    currentUser={currentUser} 
+                    onBack={() => setSelectedConversationId(null)}
+                />
+            );
+        }
+
+        return (
+             <div className="h-full flex flex-col bg-background">
+                <header className="p-4 border-b flex justify-between items-center">
+                    <h2 className="text-xl font-bold">Messages</h2>
+                    <Button size="sm" onClick={() => setIsComposing(true)}><PenSquare size={16} className="mr-2"/>Nouveau</Button>
+                </header>
+                <ScrollArea className="flex-1">
+                    {fetchError ? (
+                        <div className="p-4 text-center text-sm text-destructive">{fetchError}</div>
+                    ) : conversations.length > 0 ? (
+                        conversations.map(convo => (
+                            <ConversationListItem 
+                                key={convo.id} 
+                                conversation={convo}
+                                onSelect={() => handleSelectConversation(convo.id)}
+                                isSelected={selectedConversationId === convo.id}
+                            />
+                        ))
+                    ) : (
+                        <p className="p-4 text-center text-sm text-muted-foreground">Aucune conversation.</p>
+                    )}
+                </ScrollArea>
+                <NewMessageDialog isOpen={isComposing} onOpenChange={setIsComposing} currentUser={currentUser} users={users} onMessageSent={(recipientId) => setSelectedConversationId(recipientId)} />
+            </div>
+        )
+    }
+
+    // Desktop View
+    return (
+        <div className="h-full flex flex-row bg-muted/20">
+            <div className="w-80 border-r flex flex-col bg-background">
+                 <div className="p-4 border-b flex justify-between items-center">
+                    <h2 className="text-xl font-bold">Messages</h2>
+                    <Button variant="ghost" size="icon" onClick={() => setIsComposing(true)}><PenSquare size={16} /></Button>
+                </div>
+                <ScrollArea className="flex-1">
+                    {fetchError ? (
+                        <div className="p-4 text-center text-sm text-destructive">{fetchError}</div>
+                    ) : conversations.length > 0 ? (
+                        conversations.map(convo => (
+                            <ConversationListItem 
+                                key={convo.id} 
+                                conversation={convo}
+                                onSelect={() => handleSelectConversation(convo.id)}
+                                isSelected={selectedConversationId === convo.id}
+                            />
+                        ))
+                    ) : (
+                        <div className="p-10 text-center text-sm text-muted-foreground">Aucune conversation.</div>
+                    )}
+                </ScrollArea>
+            </div>
+            <div className="flex-1">
+                {selectedConversation ? (
+                    <ConversationDetail conversation={selectedConversation} currentUser={currentUser} onBack={() => {}} />
+                ) : (
+                    <div className="flex h-full items-center justify-center text-muted-foreground">
+                        <div className="text-center">
+                            <Mail size={48} className="mx-auto" />
+                            <h3 className="mt-4 text-lg font-semibold">Vos messages</h3>
+                            <p>Sélectionnez une conversation pour commencer à discuter.</p>
+                        </div>
+                    </div>
+                )}
+            </div>
+            <NewMessageDialog isOpen={isComposing} onOpenChange={setIsComposing} currentUser={currentUser} users={users} onMessageSent={(recipientId) => setSelectedConversationId(recipientId)} />
+        </div>
+    );
+};
+
+const NewMessageDialog = ({ isOpen, onOpenChange, currentUser, users, onMessageSent }: { isOpen: boolean, onOpenChange: (open: boolean) => void, currentUser: FirebaseUser, users: AppUser[], onMessageSent: (recipientId: string) => void }) => {
     const [recipientUid, setRecipientUid] = useState('');
-    const [subject, setSubject] = useState('');
     const [content, setContent] = useState('');
     const [isSending, setIsSending] = useState(false);
     const { toast } = useToast();
 
     const handleSend = async () => {
-        if (!recipientUid || !subject.trim() || !content.trim()) {
-            toast({ variant: 'destructive', title: 'Champs requis', description: 'Veuillez remplir tous les champs.' });
+        if (!recipientUid || !content.trim()) {
+            toast({ variant: 'destructive', title: 'Champs requis', description: 'Veuillez choisir un destinataire et écrire un message.' });
             return;
         }
         setIsSending(true);
@@ -1042,20 +1407,16 @@ const NewMessageDialog = ({ isOpen, onOpenChange, currentUser, users }: { isOpen
             await addDoc(collection(db, 'messages'), {
                 from: currentUser.uid,
                 to: recipientUid,
-                fromName: currentUser.displayName,
-                toName: recipient.name,
-                subject,
                 content,
                 timestamp: serverTimestamp(),
                 isRead: false,
-                replyTo: null,
                 participantUids: [currentUser.uid, recipientUid]
             });
             toast({ title: 'Message envoyé' });
             onOpenChange(false);
             setRecipientUid('');
-            setSubject('');
             setContent('');
+            onMessageSent(recipientUid);
         } catch (error) {
             console.error("Error sending message:", error);
             toast({ variant: 'destructive', title: 'Erreur', description: "L'envoi du message a échoué." });
@@ -1079,7 +1440,6 @@ const NewMessageDialog = ({ isOpen, onOpenChange, currentUser, users }: { isOpen
                             ))}
                         </SelectContent>
                     </Select>
-                    <Input placeholder="Sujet" value={subject} onChange={e => setSubject(e.target.value)} />
                     <Textarea placeholder="Votre message..." value={content} onChange={e => setContent(e.target.value)} rows={6} />
                 </div>
                 <DialogFooter>
@@ -1087,260 +1447,6 @@ const NewMessageDialog = ({ isOpen, onOpenChange, currentUser, users }: { isOpen
                 </DialogFooter>
             </DialogContent>
         </Dialog>
-    );
-};
-
-const MessageListItem = ({ message, onSelect, isSelected }: { message: EmailMessage, onSelect: () => void, isSelected: boolean }) => {
-    return (
-        <button
-            onClick={onSelect}
-            className={`w-full text-left p-3 border-b flex flex-col gap-1 transition-colors ${isSelected ? 'bg-primary/10' : 'hover:bg-muted'}`}
-        >
-            <div className="flex justify-between items-center">
-                <p className={`font-semibold truncate ${!message.isRead ? 'text-primary' : 'text-foreground'}`}>{message.fromName}</p>
-                <p className="text-xs text-muted-foreground whitespace-nowrap">{formatDistanceToNow(message.timestamp.toDate(), { addSuffix: true, locale: fr })}</p>
-            </div>
-            <p className="text-sm truncate">{message.subject}</p>
-            <p className="text-xs text-muted-foreground truncate">{message.content}</p>
-        </button>
-    );
-};
-
-const MessageDetail = ({ message, currentUser, onBack }: { message: EmailMessage, currentUser: FirebaseUser, onBack: () => void }) => {
-    const { toast } = useToast();
-    const [replyContent, setReplyContent] = useState('');
-    const [isSendingReply, setIsSendingReply] = useState(false);
-    const isMobile = useIsMobile();
-
-    const handleReply = async () => {
-        if (!replyContent.trim()) return;
-        setIsSendingReply(true);
-        try {
-            await addDoc(collection(db, 'messages'), {
-                from: currentUser.uid,
-                to: message.from,
-                fromName: currentUser.displayName,
-                toName: message.fromName,
-                subject: `Re: ${message.subject}`,
-                content: replyContent,
-                timestamp: serverTimestamp(),
-                isRead: false,
-                replyTo: message.id,
-                participantUids: [currentUser.uid, message.from]
-            });
-            toast({ title: 'Réponse envoyée' });
-            setReplyContent('');
-        } catch (error) {
-            console.error("Error sending reply:", error);
-            toast({ variant: 'destructive', title: 'Erreur', description: "L'envoi de la réponse a échoué." });
-        } finally {
-            setIsSendingReply(false);
-        }
-    };
-    
-    return (
-        <div className="p-4 md:p-6 flex flex-col h-full bg-background">
-             {isMobile && (
-                 <header className="flex items-center gap-2 mb-4 pb-4 border-b">
-                    <Button variant="ghost" size="icon" onClick={onBack} className="-ml-2"><ArrowLeft size={20} /></Button>
-                    <h2 className="text-lg font-bold truncate">{message.subject}</h2>
-                </header>
-            )}
-            <div className="border-b pb-4 hidden md:block">
-                <h2 className="text-2xl font-bold mb-2">{message.subject}</h2>
-                <div className="flex items-center gap-2 text-sm">
-                    <Avatar className="w-8 h-8"><AvatarFallback>{message.fromName.charAt(0)}</AvatarFallback></Avatar>
-                    <div>
-                        <p className="font-semibold">{message.fromName}</p>
-                        <p className="text-muted-foreground">À: {message.toName}</p>
-                    </div>
-                    <p className="ml-auto text-muted-foreground">{format(message.timestamp.toDate(), "d MMMM yyyy 'à' HH:mm", { locale: fr })}</p>
-                </div>
-            </div>
-             <ScrollArea className="flex-1 py-6">
-                <div className="whitespace-pre-wrap">
-                    {message.content}
-                </div>
-            </ScrollArea>
-            <div className="mt-auto pt-4 border-t">
-                 <h3 className="font-semibold mb-2">Répondre</h3>
-                <Textarea 
-                    value={replyContent}
-                    onChange={(e) => setReplyContent(e.target.value)}
-                    placeholder="Écrire une réponse..."
-                    rows={4}
-                />
-                <Button onClick={handleReply} disabled={!replyContent.trim() || isSendingReply} className="mt-2">
-                    {isSendingReply ? "Envoi..." : "Envoyer la réponse"}
-                </Button>
-            </div>
-        </div>
-    );
-};
-
-const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
-    const [messages, setMessages] = useState<EmailMessage[]>([]);
-    const [users, setUsers] = useState<AppUser[]>([]);
-    const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
-    const [filter, setFilter] = useState<'inbox' | 'sent' | 'unread'>('inbox');
-    const [isComposing, setIsComposing] = useState(false);
-    const [fetchError, setFetchError] = useState<string | null>(null);
-    const isMobile = useIsMobile();
-
-    useEffect(() => {
-        const usersCol = collection(db, 'users');
-        const q = query(usersCol, where('uid', '!=', currentUser.uid));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            setUsers(snapshot.docs.map(doc => doc.data() as AppUser));
-        }, (error) => {
-            console.error("Error fetching users:", error);
-        });
-        return () => unsubscribe();
-    }, [currentUser.uid]);
-
-    useEffect(() => {
-        if (!currentUser?.uid) {
-            setMessages([]);
-            return;
-        }
-
-        const messagesRef = collection(db, 'messages');
-        const q = query(messagesRef, where('participantUids', 'array-contains', currentUser.uid));
-
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            setFetchError(null);
-            const allMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as EmailMessage))
-            .sort((a, b) => (b.timestamp?.toDate().getTime() || 0) - (a.timestamp?.toDate().getTime() || 0));
-            setMessages(allMessages);
-        }, (error: any) => {
-            console.error("Error fetching messages:", error);
-            if (error.code === 'permission-denied') {
-                setFetchError("Permission refusée. Vérifiez vos règles de sécurité Firestore.");
-            } else if (error.code === 'failed-precondition') {
-                 setFetchError("La requête nécessite un index Firestore. Créez-le via le lien dans la console du navigateur.");
-            }
-            else {
-                setFetchError('Une erreur est survenue lors du chargement des messages.');
-            }
-        });
-
-        return () => unsubscribe();
-    }, [currentUser.uid]);
-
-    useEffect(() => {
-        if (!selectedMessageId) return;
-        const message = messages.find(m => m.id === selectedMessageId);
-        if (message && !message.isRead && message.to === currentUser.uid) {
-            const messageRef = doc(db, 'messages', selectedMessageId);
-            updateDoc(messageRef, { isRead: true }).catch(err => console.error("Error marking message as read:", err));
-        }
-    }, [selectedMessageId, messages, currentUser.uid]);
-
-    const filteredMessages = useMemo(() => {
-        let sortedMessages = [...messages].sort((a, b) => (b.timestamp?.toDate().getTime() || 0) - (a.timestamp?.toDate().getTime() || 0));
-        
-        switch (filter) {
-            case 'inbox':
-                return sortedMessages.filter(m => m.to === currentUser.uid);
-            case 'sent':
-                return sortedMessages.filter(m => m.from === currentUser.uid);
-            case 'unread':
-                return sortedMessages.filter(m => m.to === currentUser.uid && !m.isRead);
-            default:
-                return [];
-        }
-    }, [messages, filter, currentUser.uid]);
-
-    const selectedMessage = messages.find(m => m.id === selectedMessageId);
-    
-    if (isMobile) {
-        if (selectedMessage) {
-            return (
-                <MessageDetail 
-                    message={selectedMessage} 
-                    currentUser={currentUser} 
-                    onBack={() => setSelectedMessageId(null)}
-                />
-            );
-        }
-
-        return (
-             <div className="h-full flex flex-col bg-background">
-                <header className="p-4 border-b flex justify-between items-center">
-                    <h2 className="text-xl font-bold">Messages</h2>
-                    <Button size="sm" onClick={() => setIsComposing(true)}><PenSquare size={16} className="mr-2"/>Nouveau</Button>
-                </header>
-                 <div className="p-2">
-                    <Tabs defaultValue="inbox" onValueChange={(value) => setFilter(value as any)} className="w-full">
-                        <TabsList className="grid w-full grid-cols-3 h-auto">
-                            <TabsTrigger value="inbox"><Inbox size={16} className="md:mr-2" /><span className="hidden md:inline">Boîte de réception</span></TabsTrigger>
-                            <TabsTrigger value="sent"><Send size={16} className="md:mr-2" /><span className="hidden md:inline">Envoyés</span></TabsTrigger>
-                            <TabsTrigger value="unread"><Mail size={16} className="md:mr-2" /><span className="hidden md:inline">Non lus</span></TabsTrigger>
-                        </TabsList>
-                    </Tabs>
-                </div>
-                <Separator />
-                <ScrollArea className="flex-1">
-                    {fetchError ? (
-                        <div className="p-4 text-center text-sm text-destructive">{fetchError}</div>
-                    ) : filteredMessages.length > 0 ? (
-                        filteredMessages.map(msg => (
-                            <MessageListItem 
-                                key={msg.id} 
-                                message={msg} 
-                                onSelect={() => setSelectedMessageId(msg.id)}
-                                isSelected={selectedMessageId === msg.id}
-                            />
-                        ))
-                    ) : (
-                        <p className="p-4 text-center text-sm text-muted-foreground">Aucun message.</p>
-                    )}
-                </ScrollArea>
-                <NewMessageDialog isOpen={isComposing} onOpenChange={setIsComposing} currentUser={currentUser} users={users} />
-            </div>
-        )
-    }
-
-    return (
-        <div className="h-full flex flex-row bg-muted/20">
-            <div className="w-80 border-r flex flex-col bg-background">
-                <div className="p-4 border-b">
-                    <Button className="w-full" onClick={() => setIsComposing(true)}><PenSquare size={16} className="mr-2"/>Nouveau message</Button>
-                </div>
-                <div className="p-2 space-y-1">
-                    <Button variant={filter === 'inbox' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setFilter('inbox')}><Inbox size={16} className="mr-2"/>Boîte de réception</Button>
-                    <Button variant={filter === 'sent' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setFilter('sent')}><Send size={16} className="mr-2"/>Messages envoyés</Button>
-                    <Button variant={filter === 'unread' ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => setFilter('unread')}><Mail size={16} className="mr-2"/>Non lus</Button>
-                </div>
-                <Separator />
-                <ScrollArea className="flex-1">
-                    {fetchError ? (
-                        <div className="p-4 text-center text-sm text-destructive">{fetchError}</div>
-                    ) : filteredMessages.length > 0 ? (
-                        filteredMessages.map(msg => (
-                            <MessageListItem 
-                                key={msg.id} 
-                                message={msg} 
-                                onSelect={() => setSelectedMessageId(msg.id)}
-                                isSelected={selectedMessageId === msg.id}
-                            />
-                        ))
-                    ) : (
-                        <p className="p-4 text-center text-sm text-muted-foreground">Aucun message.</p>
-                    )}
-                </ScrollArea>
-            </div>
-            <div className="flex-1">
-                {selectedMessage ? (
-                    <MessageDetail message={selectedMessage} currentUser={currentUser} onBack={() => {}} />
-                ) : (
-                    <div className="flex h-full items-center justify-center text-muted-foreground">
-                        <p>Sélectionnez un message pour le lire.</p>
-                    </div>
-                )}
-            </div>
-            <NewMessageDialog isOpen={isComposing} onOpenChange={setIsComposing} currentUser={currentUser} users={users} />
-        </div>
     );
 };
   
@@ -1726,3 +1832,5 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
+
+    
