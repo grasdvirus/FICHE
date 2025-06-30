@@ -42,16 +42,23 @@ import { analyzeText } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
 import { useToast } from "@/hooks/use-toast";
-import { Switch } from "@/components/ui/switch";
+
+// Firebase
 import { auth, db, rtdb, googleProvider } from '@/lib/firebase';
 import {
   signInWithPopup,
   signOut,
   onAuthStateChanged,
-  User as FirebaseUser
+  User as FirebaseUser,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile
 } from "firebase/auth";
 import { doc, setDoc, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, where, getDocs, Timestamp, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
 import { ref as rtdbRef, onValue, push, serverTimestamp as rtdbServerTimestamp, off } from "firebase/database";
+
+// ShadCN UI Components
+import { Switch } from "@/components/ui/switch";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -63,6 +70,9 @@ import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
 
 
 // --- Data Types ---
@@ -189,11 +199,15 @@ const useAudioPlayer = () => {
 
 // --- Authentication ---
 const AuthForm = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const { toast } = useToast();
 
   const handleGoogleSignIn = async () => {
-    setIsLoading(true);
+    setIsGoogleLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
@@ -213,27 +227,137 @@ const AuthForm = () => {
         toast({ variant: 'destructive', title: 'Erreur de connexion', description: "Une erreur est survenue lors de la connexion avec Google." });
       }
     } finally {
-      setIsLoading(false);
+      setIsGoogleLoading(false);
     }
   };
   
+  const handleEmailSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast({ variant: 'destructive', title: 'Nom requis', description: 'Veuillez entrer votre nom.' });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      await updateProfile(user, { displayName: name });
+      
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, {
+        uid: user.uid,
+        name: name,
+        email: user.email,
+        photoURL: null
+      }, { merge: true });
+
+      toast({ title: 'Inscription réussie', description: `Bienvenue, ${name}!` });
+    } catch (error: any) {
+      console.error("Sign-Up Error:", error);
+      toast({ variant: 'destructive', title: 'Erreur d\'inscription', description: "Une erreur est survenue." });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleEmailSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      toast({ title: 'Connexion réussie' });
+    } catch (error: any) {
+      console.error("Sign-In Error:", error);
+      toast({ variant: 'destructive', title: 'Erreur de connexion', description: "Vérifiez votre e-mail et mot de passe." });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100 dark:bg-gray-900 p-4">
-      <div className="w-full max-w-md space-y-8 text-center">
-        <div>
-          <h1 className="text-5xl font-bold font-headline text-primary">FICHE</h1>
-          <p className="mt-2 text-lg text-gray-600 dark:text-gray-300">Votre assistant IA intelligent</p>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-muted/20 p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+            <h1 className="text-5xl font-bold font-headline text-primary">FICHE</h1>
+            <p className="mt-2 text-lg text-muted-foreground">Votre assistant IA intelligent</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-lg">
-          <h2 className="text-2xl font-semibold mb-6">Se connecter</h2>
-          <Button onClick={handleGoogleSignIn} className="w-full" disabled={isLoading}>
-            {isLoading ? 'Chargement...' : 'Continuer avec Google'}
-          </Button>
+        
+        <Tabs defaultValue="login" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="login">Se connecter</TabsTrigger>
+                <TabsTrigger value="signup">S'inscrire</TabsTrigger>
+            </TabsList>
+            <TabsContent value="login">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Connexion</CardTitle>
+                        <CardDescription>Accédez à votre compte pour continuer.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <form onSubmit={handleEmailSignIn} className="space-y-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="login-email">E-mail</Label>
+                                <Input id="login-email" type="email" placeholder="m@example.com" required value={email} onChange={(e) => setEmail(e.target.value)} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="login-password">Mot de passe</Label>
+                                <Input id="login-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+                            </div>
+                            <Button type="submit" className="w-full" disabled={isLoading}>
+                                {isLoading ? 'Connexion...' : 'Se connecter'}
+                            </Button>
+                        </form>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+            <TabsContent value="signup">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Créer un compte</CardTitle>
+                        <CardDescription>Inscrivez-vous pour commencer à utiliser FICHE.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <form onSubmit={handleEmailSignUp} className="space-y-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="signup-name">Nom</Label>
+                                <Input id="signup-name" placeholder="John Doe" required value={name} onChange={(e) => setName(e.target.value)} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="signup-email">E-mail</Label>
+                                <Input id="signup-email" type="email" placeholder="m@example.com" required value={email} onChange={(e) => setEmail(e.target.value)} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="signup-password">Mot de passe</Label>
+                                <Input id="signup-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+                            </div>
+                            <Button type="submit" className="w-full" disabled={isLoading}>
+                                {isLoading ? 'Création...' : 'Créer le compte'}
+                            </Button>
+                        </form>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+        </Tabs>
+
+        <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-muted/20 px-2 text-muted-foreground">Ou continuer avec</span>
+            </div>
         </div>
+        <Button variant="outline" onClick={handleGoogleSignIn} className="w-full" disabled={isGoogleLoading}>
+             <svg role="img" viewBox="0 0 24 24" className="mr-2 h-4 w-4">
+                <path fill="currentColor" d="M12.48 10.92v3.28h7.84c-.24 1.84-.85 3.18-1.73 4.1-1.02 1.02-2.37 1.62-4.38 1.62-3.82 0-6.94-3.12-6.94-6.94s3.12-6.94 6.94-6.94c2.2 0 3.58.88 4.38 1.62l2.35-2.35C17.48 3.48 15.24 2.4 12.48 2.4 7.22 2.4 3.2 6.42 3.2 11.68s4.02 9.28 9.28 9.28c2.82 0 5.12-1.04 6.8-2.72 1.74-1.68 2.24-4.2 2.24-6.32 0-.6-.05-1.18-.15-1.72H12.48z"></path>
+            </svg>
+            {isGoogleLoading ? 'Chargement...' : 'Continuer avec Google'}
+        </Button>
       </div>
     </div>
   );
 };
+
 
 // --- AI Chat Components ---
 const ChatMessageDisplay = React.memo(
@@ -1415,3 +1539,5 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
+
+    
