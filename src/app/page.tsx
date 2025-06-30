@@ -1086,7 +1086,7 @@ const ConversationListItem = ({ conversation, onSelect, isSelected }: { conversa
             <div className="flex-1 overflow-hidden">
                 <div className="flex justify-between items-center">
                     <p className="font-semibold truncate">{conversation.otherUser.name}</p>
-                    {conversation.lastMessage && (
+                    {conversation.lastMessage && conversation.lastMessage.timestamp && (
                         <p className="text-xs text-muted-foreground whitespace-nowrap">
                             {formatDistanceToNow(conversation.lastMessage.timestamp.toDate(), { addSuffix: true, locale: fr })}
                         </p>
@@ -1138,8 +1138,10 @@ const ConversationDetail = ({ conversation, currentUser, onBack }: { conversatio
                 }
             }
         };
-        markAsRead();
-    }, [conversation.messages, currentUser.uid]);
+        if (conversation && currentUser) {
+            markAsRead();
+        }
+    }, [conversation, currentUser]);
 
     const handleSendMessage = async () => {
         if (!newMessage.trim()) return;
@@ -1180,7 +1182,9 @@ const ConversationDetail = ({ conversation, currentUser, onBack }: { conversatio
                              {msg.from !== currentUser.uid && <Avatar className="w-8 h-8 self-start"><AvatarFallback>{conversation.otherUser.name.charAt(0)}</AvatarFallback></Avatar>}
                              <div className={`max-w-lg rounded-xl px-4 py-2 ${msg.from === currentUser.uid ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
                                  <p className="whitespace-pre-wrap">{msg.content}</p>
-                                 <p className="text-xs opacity-70 mt-1 text-right">{format(msg.timestamp.toDate(), 'HH:mm')}</p>
+                                 {msg.timestamp && (
+                                    <p className="text-xs opacity-70 mt-1 text-right">{format(msg.timestamp.toDate(), 'HH:mm')}</p>
+                                 )}
                              </div>
                          </div>
                     ))}
@@ -1268,13 +1272,13 @@ const MessagesTab = ({ currentUser }: { currentUser: FirebaseUser }) => {
             });
 
             conversationsMap.forEach(convo => {
-                convo.messages.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis());
+                convo.messages.sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
                 convo.lastMessage = convo.messages[convo.messages.length - 1] || null;
                 convo.unreadCount = convo.messages.filter(m => m.to === currentUser.uid && !m.isRead).length;
             });
             
             const sortedConversations = Array.from(conversationsMap.values())
-              .sort((a,b) => (b.lastMessage?.timestamp.toMillis() || 0) - (a.lastMessage?.timestamp.toMillis() || 0));
+              .sort((a,b) => (b.lastMessage?.timestamp?.toMillis() || 0) - (a.lastMessage?.timestamp?.toMillis() || 0));
 
             setConversations(sortedConversations);
 
