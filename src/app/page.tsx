@@ -1,43 +1,54 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { Mail, Users, FileText, Sparkles, Menu, X, User, Settings, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User } from 'lucide-react';
+import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
+import { useToast } from '@/hooks/use-toast';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 const FicheApp = () => {
   const [activeTab, setActiveTab] = useState('editor');
   const [userText, setUserText] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [isTyping, setIsTyping] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-
-  const mockSuggestions = [
-    "Améliorer la structure de votre message",
-    "Ajouter une introduction plus engageante",
-    "Utiliser un ton plus professionnel",
-    "Inclure des exemples concrets"
-  ];
-
-  useEffect(() => {
-    if (userText.length > 10) {
-      setIsTyping(true);
-      const timer = setTimeout(() => {
-        setSuggestions(mockSuggestions);
-        setIsTyping(false);
-        setShowSuggestions(true);
-      }, 1500);
-      return () => clearTimeout(timer);
-    } else {
-      setSuggestions([]);
-      setShowSuggestions(false);
-    }
-  }, [userText]);
+  
+  // States for AI analysis
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<AnalyzeTextOutput | null>(null);
+  const { toast } = useToast();
 
   const handleLogin = () => {
+    // This will be properly implemented later
     setIsLoggedIn(true);
     setShowLogin(false);
   };
+
+  const handleAnalyze = async () => {
+    if (!userText.trim()) {
+        toast({
+            title: 'Le champ de texte est vide',
+            description: 'Veuillez écrire quelque chose à analyser.',
+            variant: 'destructive',
+        });
+        return;
+    }
+    setIsAnalyzing(true);
+    setAnalysisResult(null); // Clear previous results
+    try {
+        const result = await analyzeText({ text: userText });
+        setAnalysisResult(result);
+    } catch (error) {
+        console.error("Erreur lors de l'analyse du texte:", error);
+        toast({
+            title: "Erreur d'analyse",
+            description: "Une erreur s'est produite lors de l'analyse de votre texte. Veuillez réessayer.",
+            variant: 'destructive',
+        });
+    } finally {
+        setIsAnalyzing(false);
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative overflow-hidden">
@@ -118,37 +129,70 @@ const FicheApp = () => {
                   className="w-full h-40 p-4 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none resize-none text-gray-700 placeholder-gray-400 bg-blue-50/30 backdrop-blur-sm transition-all duration-300 text-sm"
                 />
                 <div className="flex justify-between items-center mt-3">
-                  <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-xs transition-all duration-300 ${isTyping ? 'bg-blue-100 text-blue-600' : suggestions.length > 0 ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
+                  <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-xs transition-all duration-300 ${isAnalyzing ? 'bg-blue-100 text-blue-600' : analysisResult ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
                     <Bot className="h-3 w-3" />
                     <span>
-                      {isTyping ? 'Analyse...' : suggestions.length > 0 ? 'Suggestions prêtes' : 'IA en attente'}
+                      {isAnalyzing ? 'Analyse en cours...' : analysisResult ? 'Analyse terminée' : 'IA en attente'}
                     </span>
                   </div>
-                  <button className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center space-x-2">
-                    <Sparkles className="h-3 w-3" />
-                    <span>Analyser</span>
+                  <button 
+                    onClick={handleAnalyze}
+                    disabled={isAnalyzing}
+                    className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center space-x-2 disabled:opacity-50"
+                  >
+                    {isAnalyzing ? (
+                        <>
+                            <Bot className="h-3 w-3 animate-spin" />
+                            <span>Analyse...</span>
+                        </>
+                    ) : (
+                        <>
+                            <Sparkles className="h-3 w-3" />
+                            <span>Analyser</span>
+                        </>
+                    )}
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* AI Suggestions */}
-            {showSuggestions && (
-              <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 animate-in slide-in-from-bottom duration-500">
-                <div className="flex items-center space-x-2 mb-4">
-                  <Lightbulb className="h-4 w-4 text-yellow-500" />
-                  <h3 className="font-semibold text-gray-900 text-sm">Suggestions IA</h3>
+            {/* AI Results */}
+            {analysisResult && (
+              <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 animate-in slide-in-from-bottom duration-500 space-y-4">
+                <div>
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Lightbulb className="h-4 w-4 text-yellow-500" />
+                    <h3 className="font-semibold text-gray-900 text-sm">Résultats de l'Analyse IA</h3>
+                  </div>
+                  <p className="text-sm text-gray-700 bg-blue-50/50 p-3 rounded-lg border border-blue-200/50">{analysisResult.explanation}</p>
                 </div>
-                <div className="space-y-2">
-                  {suggestions.map((suggestion, index) => (
-                    <div 
-                      key={index}
-                      className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200/50 active:bg-blue-100 transition-all duration-300"
-                    >
-                      <p className="text-xs text-gray-700">{suggestion}</p>
-                    </div>
-                  ))}
-                </div>
+
+                <Accordion type="single" collapsible className="w-full">
+                  <AccordionItem value="suggestions">
+                    <AccordionTrigger>Suggestions d'amélioration</AccordionTrigger>
+                    <AccordionContent>
+                      <ul className="list-disc pl-5 space-y-2 text-sm text-gray-600">
+                        {analysisResult.suggestions.map((item, index) => <li key={`sugg-${index}`}>{item}</li>)}
+                      </ul>
+                    </AccordionContent>
+                  </AccordionItem>
+                  <AccordionItem value="ideas">
+                    <AccordionTrigger>Idées créatives</AccordionTrigger>
+                    <AccordionContent>
+                      <ul className="list-disc pl-5 space-y-2 text-sm text-gray-600">
+                        {analysisResult.ideas.map((item, index) => <li key={`idea-${index}`}>{item}</li>)}
+                      </ul>
+                    </AccordionContent>
+                  </AccordionItem>
+                  <AccordionItem value="actions">
+                    <AccordionTrigger>Actions possibles</AccordionTrigger>
+                    <AccordionContent>
+                      <ul className="list-disc pl-5 space-y-2 text-sm text-gray-600">
+                        {analysisResult.actions.map((item, index) => <li key={`act-${index}`}>{item}</li>)}
+                      </ul>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
               </div>
             )}
 
