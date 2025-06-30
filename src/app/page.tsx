@@ -97,7 +97,7 @@ type Community = {
   name: string;
   description: string;
   ownerId: string;
-  imageUrl: string;
+  color: string;
   createdAt: Timestamp;
   members: string[];
 };
@@ -136,6 +136,21 @@ type AppUser = {
 };
 
 type ActiveTab = 'chat' | 'communities' | 'files' | 'messages' | 'settings';
+
+
+// --- Community Color Palette ---
+const COMMUNITY_COLORS = [
+    '#4A90E2', // Blue
+    '#50E3C2', // Teal
+    '#E67E22', // Dark Orange
+    '#D0021B', // Red
+    '#9013FE', // Purple
+    '#27AE60', // Green
+    '#006064', // Dark Cyan
+    '#C0392B'  // Dark Red
+];
+const getRandomColor = () => COMMUNITY_COLORS[Math.floor(Math.random() * COMMUNITY_COLORS.length)];
+
 
 // --- Helpers ---
 const formatFollowerCount = (num: number): string => {
@@ -700,10 +715,9 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
     const CommunityCard = ({ community, onClick, children }: { community: Community, onClick: () => void, children?: React.ReactNode }) => (
       <div className="group relative text-center">
         <div onClick={onClick} className="cursor-pointer flex flex-col items-center">
-          <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105">
-            <AvatarImage src={community.imageUrl} data-ai-hint="logo community" />
-            <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
-          </Avatar>
+            <Avatar className="w-24 h-24 mb-2 transition-transform group-hover:scale-105" style={{ backgroundColor: community.color }}>
+              <AvatarFallback className="bg-transparent text-white text-4xl font-bold">{community.name.charAt(0).toUpperCase()}</AvatarFallback>
+            </Avatar>
           <p className="font-semibold">{community.name}</p>
           <p className="text-xs text-muted-foreground">{formatFollowerCount(community.members.length)}</p>
         </div>
@@ -826,11 +840,8 @@ const CommunitiesTab = ({ currentUser, onEnterCommunity }: { currentUser: Fireba
 const CommunityFormDialog = ({ isOpen, onOpenChange, currentUser, community }: { isOpen: boolean, onOpenChange: (open: boolean) => void, currentUser: FirebaseUser | null, community: Community | null }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [iconFile, setIconFile] = useState<File | null>(null);
-  const [iconPreview, setIconPreview] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const isEditMode = !!community;
 
@@ -839,13 +850,10 @@ const CommunityFormDialog = ({ isOpen, onOpenChange, currentUser, community }: {
       if (isEditMode && community) {
         setName(community.name);
         setDescription(community.description);
-        setIconPreview(community.imageUrl);
       } else {
         setName('');
         setDescription('');
-        setIconPreview(null);
       }
-      setIconFile(null);
     }
   }, [community, isEditMode, isOpen]);
   
@@ -866,14 +874,6 @@ const CommunityFormDialog = ({ isOpen, onOpenChange, currentUser, community }: {
     }
   };
 
-  const handleIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setIconFile(file);
-      setIconPreview(URL.createObjectURL(file));
-    }
-  };
-  
   const handleSave = async () => {
       if (!name.trim() || !description.trim() || !currentUser) {
           toast({ variant: "destructive", title: "Erreur", description: "Le nom et la description sont requis." });
@@ -882,33 +882,20 @@ const CommunityFormDialog = ({ isOpen, onOpenChange, currentUser, community }: {
       setIsSubmitting(true);
       
       try {
-          let imageUrl = isEditMode ? community.imageUrl : 'https://placehold.co/200x200.png';
-          
           if (isEditMode && community) {
-              if (iconFile) {
-                  const imageRef = storageRef(storage, `community_icons/${community.id}`);
-                  await uploadBytes(imageRef, iconFile);
-                  imageUrl = await getDownloadURL(imageRef);
-              }
               const communityRef = doc(db, 'communities', community.id);
-              await updateDoc(communityRef, { name, description, imageUrl });
+              await updateDoc(communityRef, { name, description });
               toast({ title: "Communauté modifiée", description: `La communauté "${name}" a été mise à jour.` });
           } else {
-              const newCommunityRef = await addDoc(collection(db, 'communities'), {
+              const newCommunityData = {
                   name,
                   description,
                   ownerId: currentUser.uid,
                   createdAt: serverTimestamp(),
-                  imageUrl, // placeholder for now
+                  color: getRandomColor(),
                   members: [currentUser.uid],
-              });
-
-              if (iconFile) {
-                const imageRef = storageRef(storage, `community_icons/${newCommunityRef.id}`);
-                await uploadBytes(imageRef, iconFile);
-                imageUrl = await getDownloadURL(imageRef);
-                await updateDoc(newCommunityRef, { imageUrl });
-              }
+              };
+              await addDoc(collection(db, 'communities'), newCommunityData);
               toast({ title: "Communauté créée", description: `La communauté "${name}" a été créée avec succès.` });
           }
           onOpenChange(false);
@@ -942,19 +929,6 @@ const CommunityFormDialog = ({ isOpen, onOpenChange, currentUser, community }: {
                         <Sparkles className="w-4 h-4 mr-2"/>
                         {isGenerating ? 'Génération...' : 'Générer avec l\'IA'}
                     </Button>
-                </div>
-            </div>
-             <div className="grid gap-2">
-                <Label>Icône de la communauté</Label>
-                <div className="flex items-center gap-4">
-                  <Avatar className="w-20 h-20">
-                    <AvatarImage src={iconPreview || community?.imageUrl} />
-                    <AvatarFallback><ImageIcon className="w-8 h-8 text-muted-foreground" /></AvatarFallback>
-                  </Avatar>
-                  <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
-                    Choisir une image
-                  </Button>
-                  <Input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleIconChange} />
                 </div>
             </div>
         </div>
@@ -1026,9 +1000,8 @@ const CommunityChatRoom = ({ community, onBack, currentUser }: { community: Comm
     <div className="h-full flex flex-col bg-muted/40 dark:bg-gray-800/20">
       <header className="flex items-center gap-4 p-4 border-b bg-background dark:bg-gray-900/50">
         <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft size={18} /></Button>
-        <Avatar className="w-10 h-10">
-          <AvatarImage src={community.imageUrl} />
-          <AvatarFallback>{community.name.charAt(0)}</AvatarFallback>
+        <Avatar className="w-10 h-10" style={{backgroundColor: community.color}}>
+          <AvatarFallback className="bg-transparent text-white font-semibold">{community.name.charAt(0).toUpperCase()}</AvatarFallback>
         </Avatar>
         <h2 className="text-xl font-bold">{community.name}</h2>
       </header>
@@ -1836,5 +1809,3 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
-
-    
