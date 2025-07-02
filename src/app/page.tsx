@@ -198,7 +198,7 @@ const FicheApp = () => {
     });
 
     return () => unsubscribe();
-  }, [selectedConversation]);
+  }, [selectedConversation?.id]);
 
 
   useEffect(() => {
@@ -358,6 +358,7 @@ const FicheApp = () => {
     try {
       const conversationSnap = await getDoc(conversationRef);
       
+      let conversationData;
       if (!conversationSnap.exists()) {
         const newConvoData = {
           participants: [user.uid, otherUser.uid],
@@ -368,12 +369,12 @@ const FicheApp = () => {
           lastMessage: null,
         };
         await setDoc(conversationRef, newConvoData);
-        const newConvoForState = { id: conversationId, ...newConvoData };
-        setSelectedConversation(newConvoForState);
+        conversationData = { id: conversationId, ...newConvoData };
       } else {
-        setSelectedConversation({ id: conversationSnap.id, ...conversationSnap.data() });
+        conversationData = { id: conversationSnap.id, ...conversationSnap.data() };
       }
       
+      setSelectedConversation(conversationData);
       setShowNewMessageModal(false);
     } catch (error: any) {
       console.error("Erreur au démarrage de la conversation:", error);
@@ -524,7 +525,7 @@ const FicheApp = () => {
       {/* Main Content */}
       <main className="relative z-10 pb-20 h-[calc(100vh-61px)]">
         {activeTab === 'editor' && (
-          <div className="px-4 py-6 space-y-6">
+          <div className="h-full overflow-y-auto px-4 py-6 space-y-6">
             {/* Hero Card */}
             <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
               <div className="inline-flex items-center space-x-2 bg-blue-100 rounded-full px-3 py-1 text-blue-700 text-xs font-medium mb-3">
@@ -682,7 +683,7 @@ const FicheApp = () => {
                     onBack={() => setSelectedConversation(null)}
                 />
             ) : (
-              <div className="px-4 py-6 space-y-4">
+              <div className="h-full overflow-y-auto px-4 py-6 space-y-4 pb-24">
                 {/* Header avec recherche */}
                 <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4">
                   <div className="flex items-center justify-between mb-4">
@@ -715,7 +716,7 @@ const FicheApp = () => {
                 </div>
 
                 {/* Liste des conversations */}
-                <div className="space-y-3 pb-16">
+                <div className="space-y-3">
                    {conversations.length > 0 ? (
                       conversations.map(renderConversationListItem)
                    ) : (
@@ -738,7 +739,7 @@ const FicheApp = () => {
         )}
 
         {activeTab === 'community' && (
-          <div className="px-4 py-6">
+          <div className="h-full overflow-y-auto px-4 py-6">
             <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
               <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <Users className="h-8 w-8 text-white" />
@@ -755,6 +756,18 @@ const FicheApp = () => {
                   <span>Explorer</span>
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'ia' && (
+          <div className="h-full overflow-y-auto px-4 py-6">
+            <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
+              <div className="w-16 h-16 bg-gradient-to-r from-teal-500 to-cyan-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Bot className="h-8 w-8 text-white" />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">Assistant IA</h2>
+              <p className="text-sm text-gray-600 mb-6">Cette section est en cours de développement.</p>
             </div>
           </div>
         )}
@@ -784,7 +797,10 @@ const FicheApp = () => {
             <Users className="h-5 w-5 mb-1" />
             <span className="text-xs font-medium">Communautés</span>
           </button>
-          <button className="flex flex-col items-center p-3 rounded-lg text-gray-500">
+          <button 
+            className={`flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'ia' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
+            onClick={() => { setActiveTab('ia'); setSelectedConversation(null); }}
+          >
             <Bot className="h-5 w-5 mb-1" />
             <span className="text-xs font-medium">IA</span>
           </button>
