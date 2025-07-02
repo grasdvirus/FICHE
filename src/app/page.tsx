@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck } from 'lucide-react';
+import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2 } from 'lucide-react';
 import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { useToast } from '@/hooks/use-toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser, GoogleAuthProvider } from 'firebase/auth';
 import { auth, googleProvider, db, rtdb } from '@/lib/firebase';
-import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, getDoc, updateDoc, arrayUnion, writeBatch, increment } from 'firebase/firestore';
+import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, getDoc, updateDoc, arrayUnion, writeBatch, increment, deleteDoc } from 'firebase/firestore';
 import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -113,6 +114,8 @@ const FicheApp = () => {
   const [usersToMessage, setUsersToMessage] = useState<any[]>([]);
   const [usersCache, setUsersCache] = useState<{[key: string]: any}>({});
   const [presenceCache, setPresenceCache] = useState<{[key: string]: any}>({});
+  const [searchUserQuery, setSearchUserQuery] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
 
 
   // Fetch user data and cache it
@@ -373,9 +376,9 @@ const FicheApp = () => {
     
     try {
         const conversationSnap = await getDoc(conversationRef);
-        
+        let convoData;
         if (!conversationSnap.exists()) {
-            const newConvoData = {
+            convoData = {
                 participantIds: [user.uid, otherUser.uid],
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
@@ -386,12 +389,13 @@ const FicheApp = () => {
                     [otherUser.uid]: 0,
                 },
             };
-            await setDoc(conversationRef, newConvoData);
-            setSelectedConversation({ id: conversationId, ...newConvoData });
+            await setDoc(conversationRef, convoData);
         } else {
-            setSelectedConversation({ id: conversationId, ...conversationSnap.data() });
+            convoData = conversationSnap.data();
         }
+        setSelectedConversation({ id: conversationId, ...convoData });
         setShowNewMessageModal(false);
+        setSearchUserQuery('');
     } catch (error: any) {
         console.error("Erreur au démarrage de la conversation:", error);
         toast({
@@ -401,6 +405,42 @@ const FicheApp = () => {
         });
     }
 };
+
+const handleDeleteConversation = async (conversationId: string | null) => {
+    if (!conversationId) return;
+
+    const conversationRef = doc(db, 'conversations', conversationId);
+    
+    try {
+        const messagesQuery = query(collection(conversationRef, 'messages'));
+        const messagesSnapshot = await getDocs(messagesQuery);
+        const batch = writeBatch(db);
+        messagesSnapshot.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+
+        await deleteDoc(conversationRef);
+
+        toast({
+            title: "Conversation supprimée",
+            description: "La conversation a été supprimée avec succès.",
+        });
+
+    } catch (error) {
+        console.error("Erreur lors de la suppression:", error);
+        toast({
+            title: "Erreur de suppression",
+            description: "Impossible de supprimer la conversation.",
+            variant: "destructive",
+        });
+    } finally {
+        setShowDeleteConfirm(null);
+        if (selectedConversation?.id === conversationId) {
+            setSelectedConversation(null);
+        }
+    }
+  };
 
 
   const handleSendMessage = async () => {
@@ -463,7 +503,7 @@ const FicheApp = () => {
       const isLastMessageReadByOther = lastMessage && lastMessage.senderId === user.uid && conversation.readBy?.includes(otherParticipantId);
 
       return (
-        <div key={conversation.id} onClick={() => setSelectedConversation(conversation)} className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300 cursor-pointer">
+        <div key={conversation.id} onClick={() => setSelectedConversation(conversation)} className="group backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300 cursor-pointer">
           <div className="flex items-start space-x-3">
             <div className="relative">
               <div className="w-12 h-12 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center">
@@ -504,6 +544,16 @@ const FicheApp = () => {
                       <span className="text-white text-xs font-medium">{unreadCount}</span>
                     </div>
                   )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowDeleteConfirm(conversation.id);
+                    }}
+                    className="p-1 rounded-full text-gray-400 hover:bg-red-100 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Supprimer la conversation"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -511,6 +561,11 @@ const FicheApp = () => {
         </div>
       );
   }
+
+  const filteredUsersToMessage = usersToMessage.filter(u =>
+    u.displayName?.toLowerCase().includes(searchUserQuery.toLowerCase()) ||
+    u.email?.toLowerCase().includes(searchUserQuery.toLowerCase())
+  );
 
   return (
     <div className="h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative flex flex-col">
@@ -719,41 +774,32 @@ const FicheApp = () => {
                 />
             ) : (
               <div className="h-full flex flex-col">
-                <div className="flex flex-col shrink-0">
-                  {/* Header avec recherche */}
-                  <div className="px-4 pt-6 shrink-0">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-4">Messages</h2>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <input 
-                        type="text" 
-                        placeholder="Rechercher des conversations..."
-                        className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm shadow-sm"
-                      />
-                    </div>
+                <div className="flex flex-col shrink-0 px-4 pt-6 space-y-4">
+                  <h2 className="text-2xl font-bold text-gray-900">Messages</h2>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input 
+                      type="text" 
+                      placeholder="Rechercher des conversations..."
+                      className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm shadow-sm"
+                    />
                   </div>
-
-                  {/* Filtres rapides */}
-                  <div className="px-4 pt-4 shrink-0">
-                    <div className="flex space-x-2 overflow-x-auto pb-2">
-                      <button className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full text-xs font-medium">
-                        Tous
-                      </button>
-                      <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                        Non lus
-                      </button>
-                      <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                        Favoris
-                      </button>
-                      <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                        Groupes
-                      </button>
-                    </div>
+                  <div className="flex space-x-2 overflow-x-auto pb-2">
+                    <button className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full text-xs font-medium">
+                      Tous
+                    </button>
+                    <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                      Non lus
+                    </button>
+                    <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                      Favoris
+                    </button>
+                    <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                      Groupes
+                    </button>
                   </div>
                 </div>
 
-
-                {/* Liste des conversations */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-28">
                    {conversations.length > 0 ? (
                       conversations.map(renderConversationListItem)
@@ -765,7 +811,6 @@ const FicheApp = () => {
                    )}
                 </div>
 
-                {/* Bouton flottant pour nouveau message */}
                 <div className="fixed bottom-24 right-4 z-10">
                   <button onClick={handleOpenNewMessageModal} className="w-14 h-14 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center shadow-xl">
                     <Plus className="h-6 w-6 text-white" />
@@ -915,18 +960,32 @@ const FicheApp = () => {
                 <div className="p-4 border-b">
                     <h2 className="text-lg font-bold text-center">Nouveau Message</h2>
                 </div>
+                <div className="p-4 border-b flex items-center space-x-2">
+                    <Search className="h-5 w-5 text-gray-400" />
+                    <input
+                        type="text"
+                        placeholder="Rechercher par nom ou email..."
+                        value={searchUserQuery}
+                        onChange={(e) => setSearchUserQuery(e.target.value)}
+                        className="w-full bg-transparent focus:outline-none text-sm"
+                    />
+                </div>
                 <div className="flex-1 overflow-y-auto">
-                    {usersToMessage.map(u => (
-                        <div key={u.id} onClick={() => handleStartConversation(u)} className="flex items-center p-4 space-x-3 hover:bg-gray-100 cursor-pointer">
-                            <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full flex items-center justify-center">
-                                <span className="text-white font-semibold">{u.displayName?.charAt(0).toUpperCase()}</span>
+                    {filteredUsersToMessage.length > 0 ? (
+                        filteredUsersToMessage.map(u => (
+                            <div key={u.id} onClick={() => handleStartConversation(u)} className="flex items-center p-4 space-x-3 hover:bg-gray-100 cursor-pointer">
+                                <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full flex items-center justify-center">
+                                    <span className="text-white font-semibold">{u.displayName?.charAt(0).toUpperCase()}</span>
+                                </div>
+                                <div className="flex-1">
+                                    <h3 className="font-semibold text-gray-800">{u.displayName}</h3>
+                                    <p className="text-sm text-gray-500">{u.email}</p>
+                                </div>
                             </div>
-                            <div className="flex-1">
-                                <h3 className="font-semibold text-gray-800">{u.displayName}</h3>
-                                <p className="text-sm text-gray-500">{u.email}</p>
-                            </div>
-                        </div>
-                    ))}
+                        ))
+                    ) : (
+                        <p className="text-center text-gray-500 py-4 text-sm">Aucun utilisateur trouvé.</p>
+                    )}
                 </div>
                  <div className="p-4 border-t">
                     <button onClick={() => setShowNewMessageModal(false)} className="w-full border-2 border-gray-200 text-gray-600 py-3 rounded-xl font-medium">
@@ -936,8 +995,28 @@ const FicheApp = () => {
             </div>
          </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <AlertDialog open={!!showDeleteConfirm} onOpenChange={(isOpen) => !isOpen && setShowDeleteConfirm(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Êtes-vous vraiment sûr ?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Cette action est irréversible. La conversation et tous ses messages seront définitivement supprimés.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setShowDeleteConfirm(null)}>Annuler</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => handleDeleteConversation(showDeleteConfirm)}>Supprimer</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 };
 
 export default FicheApp;
+
+    
