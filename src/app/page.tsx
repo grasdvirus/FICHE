@@ -47,14 +47,23 @@ const FicheApp = () => {
     const newUsersToFetch = userIds.filter(id => !usersCache[id]);
     if (newUsersToFetch.length === 0) return;
 
-    const usersRef = collection(db, "users");
-    const q = query(usersRef, where("uid", "in", newUsersToFetch));
-    const querySnapshot = await getDocs(q);
-    const fetchedUsers: {[key: string]: any} = {};
-    querySnapshot.forEach((doc) => {
-      fetchedUsers[doc.data().uid] = doc.data();
-    });
-    setUsersCache(prev => ({...prev, ...fetchedUsers}));
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("uid", "in", newUsersToFetch));
+      const querySnapshot = await getDocs(q);
+      const fetchedUsers: {[key: string]: any} = {};
+      querySnapshot.forEach((doc) => {
+        fetchedUsers[doc.data().uid] = doc.data();
+      });
+      setUsersCache(prev => ({...prev, ...fetchedUsers}));
+    } catch (error) {
+        console.error("Erreur lors de la récupération des utilisateurs:", error);
+        toast({
+            title: "Erreur de chargement",
+            description: "Impossible de charger les informations des utilisateurs.",
+            variant: "destructive",
+        });
+    }
   };
 
   useEffect(() => {
@@ -70,10 +79,18 @@ const FicheApp = () => {
       const convos = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setConversations(convos);
 
-      // Fetch data for all participants in the conversations
       const allParticipantIds = convos.flatMap(c => c.participantIds);
       const uniqueParticipantIds = [...new Set(allParticipantIds)];
       fetchUsersData(uniqueParticipantIds);
+    }, (error) => {
+      console.error("Erreur d'écoute des conversations: ", error);
+      if (error.code === 'permission-denied') {
+        toast({
+            title: "Erreur de permission",
+            description: "Vérifiez vos règles de sécurité Firestore pour autoriser la lecture des conversations.",
+            variant: "destructive",
+        });
+      }
     });
 
     return () => unsubscribe();
@@ -91,6 +108,15 @@ const FicheApp = () => {
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const msgs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setMessages(msgs);
+    }, (error) => {
+        console.error("Erreur d'écoute des messages: ", error);
+        if (error.code === 'permission-denied') {
+          toast({
+              title: "Erreur de permission",
+              description: "Vérifiez vos règles de sécurité Firestore pour autoriser la lecture des messages.",
+              variant: "destructive",
+          });
+        }
     });
 
     return () => unsubscribe();
@@ -102,14 +128,22 @@ const FicheApp = () => {
       setUser(currentUser);
       if (currentUser) {
         setShowLogin(false);
-        // Add or update user in 'users' collection
         const userRef = doc(db, "users", currentUser.uid);
-        await setDoc(userRef, {
-            uid: currentUser.uid,
-            displayName: currentUser.displayName || currentUser.email?.split('@')[0],
-            email: currentUser.email,
-            photoURL: currentUser.photoURL,
-        }, { merge: true });
+        try {
+          await setDoc(userRef, {
+              uid: currentUser.uid,
+              displayName: currentUser.displayName || currentUser.email?.split('@')[0],
+              email: currentUser.email,
+              photoURL: currentUser.photoURL,
+          }, { merge: true });
+        } catch(error) {
+            console.error("Erreur de sauvegarde de l'utilisateur:", error);
+             toast({
+                title: "Erreur de sauvegarde",
+                description: "Impossible d'enregistrer les informations utilisateur.",
+                variant: "destructive",
+            });
+        }
       }
     });
     return () => unsubscribe();
@@ -141,7 +175,7 @@ const FicheApp = () => {
         default:
             break;
     }
-    toast({ title, description, variant: 'destructive' });
+    toast({ title, title, description, variant: 'destructive' });
   };
 
   const handleEmailSignUp = async () => {
@@ -206,12 +240,21 @@ const FicheApp = () => {
 
   const handleOpenNewMessageModal = async () => {
     if (!user) return;
-    const usersRef = collection(db, "users");
-    const q = query(usersRef, where("uid", "!=", user.uid));
-    const querySnapshot = await getDocs(q);
-    const allUsers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    setUsersToMessage(allUsers);
-    setShowNewMessageModal(true);
+    try {
+        const usersRef = collection(db, "users");
+        const q = query(usersRef, where("uid", "!=", user.uid));
+        const querySnapshot = await getDocs(q);
+        const allUsers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setUsersToMessage(allUsers);
+        setShowNewMessageModal(true);
+    } catch(error) {
+        console.error("Impossible de lister les utilisateurs:", error);
+         toast({
+            title: "Erreur",
+            description: "Impossible de charger la liste des utilisateurs. Vérifiez vos permissions Firestore.",
+            variant: "destructive",
+        });
+    }
   };
   
   const handleStartConversation = async (otherUser: any) => {
@@ -220,27 +263,36 @@ const FicheApp = () => {
       const conversationId = getConversationId(user.uid, otherUser.uid);
       const conversationRef = doc(db, "conversations", conversationId);
       
-      const conversationSnap = await getDoc(conversationRef);
-      let convoData;
+      try {
+        const conversationSnap = await getDoc(conversationRef);
+        let convoData;
 
-      if (!conversationSnap.exists()) {
-          convoData = {
-              id: conversationId,
-              participantIds: [user.uid, otherUser.uid],
-              participants: {
-                [user.uid]: { displayName: user.displayName, photoURL: user.photoURL },
-                [otherUser.uid]: { displayName: otherUser.displayName, photoURL: otherUser.photoURL },
-              },
-              lastMessage: null,
-              updatedAt: serverTimestamp(),
-          };
-          await setDoc(conversationRef, convoData);
-      } else {
-          convoData = {id: conversationSnap.id, ...conversationSnap.data()};
+        if (!conversationSnap.exists()) {
+            convoData = {
+                id: conversationId,
+                participantIds: [user.uid, otherUser.uid],
+                participants: {
+                  [user.uid]: { displayName: user.displayName, photoURL: user.photoURL },
+                  [otherUser.uid]: { displayName: otherUser.displayName, photoURL: otherUser.photoURL },
+                },
+                lastMessage: null,
+                updatedAt: serverTimestamp(),
+            };
+            await setDoc(conversationRef, convoData);
+        } else {
+            convoData = {id: conversationSnap.id, ...conversationSnap.data()};
+        }
+        
+        setSelectedConversation(convoData);
+        setShowNewMessageModal(false);
+      } catch (error) {
+        console.error("Erreur au démarrage de la conversation:", error);
+        toast({
+          title: "Erreur",
+          description: "Impossible de démarrer la conversation.",
+          variant: "destructive",
+        });
       }
-      
-      setSelectedConversation(convoData);
-      setShowNewMessageModal(false);
   };
 
   const handleSendMessage = async () => {
@@ -249,26 +301,35 @@ const FicheApp = () => {
     const conversationRef = doc(db, "conversations", selectedConversation.id);
     const messagesRef = collection(conversationRef, "messages");
 
-    await addDoc(messagesRef, {
-        content: newMessage,
-        senderId: user.uid,
-        timestamp: serverTimestamp(),
-        readBy: [user.uid]
-    });
+    try {
+      await addDoc(messagesRef, {
+          content: newMessage,
+          senderId: user.uid,
+          timestamp: serverTimestamp(),
+          readBy: [user.uid]
+      });
 
-    await updateDoc(conversationRef, {
-        lastMessage: {
-            content: newMessage,
-            senderId: user.uid,
-            timestamp: serverTimestamp()
-        },
-        updatedAt: serverTimestamp()
-    });
+      await updateDoc(conversationRef, {
+          lastMessage: {
+              content: newMessage,
+              senderId: user.uid,
+              timestamp: serverTimestamp()
+          },
+          updatedAt: serverTimestamp()
+      });
 
-    setNewMessage('');
+      setNewMessage('');
+    } catch(error) {
+      console.error("Erreur d'envoi du message:", error);
+      toast({
+        title: "Erreur d'envoi",
+        description: "Votre message n'a pas pu être envoyé.",
+        variant: "destructive",
+      });
+    }
   };
-
-  const renderConversationListItem = (conversation: any) => {
+  
+    const renderConversationListItem = (conversation: any) => {
       if (!user || !usersCache) return null;
       
       const otherParticipantId = conversation.participantIds.find((id: string) => id !== user.uid);
@@ -292,7 +353,7 @@ const FicheApp = () => {
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1">
                 <h3 className="font-semibold text-gray-900 text-sm truncate">{otherUser.displayName}</h3>
-                {lastMessage?.timestamp && (
+                {lastMessage?.timestamp?.toDate && (
                    <span className="text-xs text-gray-500">
                     {formatDistanceToNow(lastMessage.timestamp.toDate(), { addSuffix: true, locale: fr })}
                    </span>
@@ -348,7 +409,7 @@ const FicheApp = () => {
                     <div key={msg.id} className={`flex ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}>
                         <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-blue-500 text-white rounded-br-none' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
                             <p className="text-sm">{msg.content}</p>
-                            {msg.timestamp && (
+                            {msg.timestamp?.toDate && (
                                 <p className={`text-xs mt-1 ${msg.senderId === user.uid ? 'text-blue-100' : 'text-gray-500'} text-right`}>
                                     {new Date(msg.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </p>
