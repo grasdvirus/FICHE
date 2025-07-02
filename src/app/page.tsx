@@ -18,7 +18,7 @@ const getConversationId = (uid1: string, uid2: string) => {
 };
 
 const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNewMessage, onSendMessage, onBack }: any) => {
-  if (!conversation || !user) return null;
+  if (!conversation?.id || !user) return null;
 
   const otherParticipantId = conversation.participantIds.find((id: string) => id !== user.uid);
   const otherUser = usersCache[otherParticipantId];
@@ -48,14 +48,14 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
           {/* Messages Area */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.map((msg: any) => {
-                  const isRead = msg.readBy?.includes(otherParticipantId);
+                  const isReadByOther = msg.readBy?.includes(otherParticipantId);
                   return (
                     <div key={msg.id} className={`flex items-end gap-2 ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}>
                         <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-blue-500 text-white rounded-br-none' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
                             <p className="text-sm">{msg.content}</p>
                         </div>
                         {msg.senderId === user.uid && (
-                            isRead ? <CheckCheck className="h-4 w-4 text-blue-500" /> : <Check className="h-4 w-4 text-gray-400" />
+                            isReadByOther ? <CheckCheck className="h-4 w-4 text-blue-500" /> : <Check className="h-4 w-4 text-gray-400" />
                         )}
                     </div>
                   )
@@ -205,7 +205,7 @@ const FicheApp = () => {
   
   // Mark messages as read
   useEffect(() => {
-    if (!selectedConversation || !user || messages.length === 0) return;
+    if (!selectedConversation?.id || !user || messages.length === 0) return;
 
     const markAsRead = async () => {
         const conversationRef = doc(db, 'conversations', selectedConversation.id);
@@ -370,7 +370,6 @@ const FicheApp = () => {
       
       if (!conversationSnap.exists()) {
         const newConvoData = {
-          participants: [user.uid, otherUser.uid],
           participantIds: [user.uid, otherUser.uid].sort(),
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -382,13 +381,19 @@ const FicheApp = () => {
           },
         };
         await setDoc(conversationRef, newConvoData);
-        setSelectedConversation({ id: conversationId, ...newConvoData });
+        // Important: Set selected conversation with full data to prevent race conditions
+        setSelectedConversation({ id: conversationId, ...newConvoData, participantIds: [user.uid, otherUser.uid].sort() });
       } else {
         setSelectedConversation({ id: conversationSnap.id, ...conversationSnap.data() });
       }
       setShowNewMessageModal(false);
     } catch (error: any) {
       console.error("Erreur au démarrage de la conversation:", error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de démarrer la conversation.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -444,8 +449,10 @@ const FicheApp = () => {
       const lastMessage = conversation.lastMessage;
       const isOnline = presenceCache[otherParticipantId]?.state === 'online';
       const unreadCount = conversation.unreadCounts?.[user.uid] || 0;
+      
+      if (!otherUser) return null; // Don't render if other user's data isn't loaded yet
 
-      if (!otherUser) return null;
+      const isLastMessageReadByOther = lastMessage && lastMessage.senderId === user.uid && conversation.readBy?.includes(otherParticipantId);
 
       return (
         <div key={conversation.id} onClick={() => setSelectedConversation(conversation)} className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300 cursor-pointer">
@@ -469,23 +476,27 @@ const FicheApp = () => {
                    </span>
                 )}
               </div>
-              <p className="text-xs text-gray-600 line-clamp-1 mb-2">
-                {lastMessage ? (
-                    <>
-                     {lastMessage.senderId === user.uid && <span className="mr-1">Vous:</span>}
-                     {lastMessage.content}
-                    </>
-                ) : (
-                    "Commencez la conversation !"
-                )}
-              </p>
-               <div className="flex items-center justify-end">
-                {lastMessage?.senderId === user.uid && <Check className="h-4 w-4 text-gray-400" />}
-                {unreadCount > 0 && (
-                  <div className="ml-auto w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-                    <span className="text-white text-xs font-medium">{unreadCount}</span>
-                  </div>
-                )}
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-600 line-clamp-1 flex-1 pr-2">
+                  {lastMessage ? (
+                      <>
+                       {lastMessage.senderId === user.uid && <span className="mr-1">Vous:</span>}
+                       {lastMessage.content}
+                      </>
+                  ) : (
+                      "Commencez la conversation !"
+                  )}
+                </p>
+                <div className="flex items-center space-x-2">
+                  {lastMessage?.senderId === user.uid && (
+                    isLastMessageReadByOther ? <CheckCheck className="h-4 w-4 text-blue-500" /> : <Check className="h-4 w-4 text-gray-400" />
+                  )}
+                  {unreadCount > 0 && (
+                    <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                      <span className="text-white text-xs font-medium">{unreadCount}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
