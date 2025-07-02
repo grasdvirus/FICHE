@@ -209,15 +209,17 @@ const FicheApp = () => {
         const userRef = doc(db, "users", currentUser.uid);
         try {
           // Create or update user document to be compliant with security rules
-          await setDoc(userRef, {
-              uid: currentUser.uid,
-              displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Anonymous',
-              email: currentUser.email,
-              photoURL: currentUser.photoURL,
-              createdAt: serverTimestamp(),
-              visibility: 'public',
-              isVerified: currentUser.emailVerified,
-          }, { merge: true });
+          const userDoc = await getDoc(userRef);
+          if (!userDoc.exists()) {
+            await setDoc(userRef, {
+                uid: currentUser.uid,
+                displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Anonymous',
+                email: currentUser.email,
+                photoURL: currentUser.photoURL,
+                createdAt: serverTimestamp(),
+                isVerified: currentUser.emailVerified,
+            }, { merge: true });
+          }
         } catch(error) {
             console.error("Erreur de sauvegarde de l'utilisateur:", error);
              toast({
@@ -359,7 +361,7 @@ const FicheApp = () => {
       let convoData;
 
       if (!conversationSnap.exists()) {
-        convoData = {
+        const newConvoData = {
           participants: [user.uid, otherUser.uid],
           participantIds: [user.uid, otherUser.uid].sort(),
           createdAt: serverTimestamp(),
@@ -367,7 +369,9 @@ const FicheApp = () => {
           type: 'direct',
           lastMessage: null,
         };
-        await setDoc(conversationRef, convoData);
+        await setDoc(conversationRef, newConvoData);
+        // Set the local state with the ID to prevent crash
+        convoData = { id: conversationId, ...newConvoData };
       } else {
         convoData = { id: conversationSnap.id, ...conversationSnap.data() };
       }
