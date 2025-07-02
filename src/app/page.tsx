@@ -205,7 +205,9 @@ const FicheApp = () => {
   
   // Mark messages as read
   useEffect(() => {
-    if (!selectedConversation?.id || !user || messages.length === 0) return;
+    if (!selectedConversation?.id || !user || !messages.length) {
+        return;
+    }
 
     const markAsRead = async () => {
         const conversationRef = doc(db, 'conversations', selectedConversation.id);
@@ -247,13 +249,14 @@ const FicheApp = () => {
         try {
           const userDoc = await getDoc(userRef);
           if (!userDoc.exists()) {
-            await setDoc(userRef, {
+             await setDoc(userRef, {
                 uid: currentUser.uid,
                 displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Anonymous',
                 email: currentUser.email,
                 photoURL: currentUser.photoURL,
                 createdAt: serverTimestamp(),
                 isVerified: currentUser.emailVerified,
+                visibility: 'public'
             });
           }
         } catch(error: any) {
@@ -360,45 +363,45 @@ const FicheApp = () => {
   };
   
   const handleStartConversation = async (otherUser: any) => {
-    if (!user) return;
+      if (!user) return;
   
-    const conversationId = getConversationId(user.uid, otherUser.uid);
-    const conversationRef = doc(db, "conversations", conversationId);
-  
-    try {
-      const conversationSnap = await getDoc(conversationRef);
+      const conversationId = getConversationId(user.uid, otherUser.uid);
+      const conversationRef = doc(db, "conversations", conversationId);
       
-      if (!conversationSnap.exists()) {
-        const newConvoData = {
-          participantIds: [user.uid, otherUser.uid].sort(),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          type: 'direct',
-          lastMessage: null,
-          unreadCounts: {
-            [user.uid]: 0,
-            [otherUser.uid]: 0,
-          },
-        };
-        await setDoc(conversationRef, newConvoData);
-        // Important: Set selected conversation with full data to prevent race conditions
-        setSelectedConversation({ id: conversationId, ...newConvoData, participantIds: [user.uid, otherUser.uid].sort() });
-      } else {
-        setSelectedConversation({ id: conversationSnap.id, ...conversationSnap.data() });
+      try {
+          const conversationSnap = await getDoc(conversationRef);
+          
+          if (!conversationSnap.exists()) {
+              const newConvoData = {
+                  participantIds: [user.uid, otherUser.uid],
+                  createdAt: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                  type: 'direct',
+                  lastMessage: null,
+                  unreadCounts: {
+                      [user.uid]: 0,
+                      [otherUser.uid]: 0,
+                  },
+              };
+              await setDoc(conversationRef, newConvoData);
+              setSelectedConversation({ id: conversationId, ...newConvoData });
+          } else {
+              setSelectedConversation({ id: conversationSnap.id, ...conversationSnap.data() });
+          }
+          setShowNewMessageModal(false);
+      } catch (error: any) {
+          console.error("Erreur au démarrage de la conversation:", error);
+          toast({
+              title: "Erreur",
+              description: "Impossible de démarrer la conversation. " + (error?.message || ''),
+              variant: "destructive",
+          });
       }
-      setShowNewMessageModal(false);
-    } catch (error: any) {
-      console.error("Erreur au démarrage de la conversation:", error);
-      toast({
-        title: "Erreur",
-        description: "Impossible de démarrer la conversation.",
-        variant: "destructive",
-      });
-    }
   };
 
+
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !user || !selectedConversation) return;
+    if (!newMessage.trim() || !user || !selectedConversation?.id) return;
 
     const conversationRef = doc(db, "conversations", selectedConversation.id);
     const messagesRef = collection(conversationRef, "messages");
@@ -505,13 +508,13 @@ const FicheApp = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative overflow-hidden">
+    <div className="h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative flex flex-col">
       {/* Background Effects */}
       <div className="absolute inset-0 bg-gradient-to-r from-blue-200/20 to-indigo-200/20 blur-3xl"></div>
       <div className="absolute top-10 left-1/4 w-64 h-64 bg-blue-300/10 rounded-full blur-3xl animate-pulse"></div>
       <div className="absolute bottom-20 right-1/4 w-48 h-48 bg-indigo-300/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
 
-      {/* Mobile Header */}
+      {/* Header */}
       <header className="relative z-10 backdrop-blur-md bg-white/90 border-b border-blue-200/50 shadow-lg">
         <div className="px-4 py-3">
           <div className="flex justify-between items-center">
@@ -550,7 +553,7 @@ const FicheApp = () => {
       </header>
 
       {/* Main Content */}
-      <main className="relative z-10 pb-20 h-[calc(100vh-61px)]">
+      <main className="relative z-10 flex-1 overflow-hidden">
         {activeTab === 'editor' && (
           <div className="h-full overflow-y-auto px-4 py-6 space-y-6">
             {/* Hero Card */}
@@ -710,7 +713,7 @@ const FicheApp = () => {
                     onBack={() => setSelectedConversation(null)}
                 />
             ) : (
-              <div className="h-full flex flex-col px-4 py-6 space-y-4 pb-24">
+              <div className="h-full flex flex-col px-4 py-6 space-y-4 pb-24 overflow-y-auto">
                 {/* Header avec recherche */}
                 <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4">
                   <div className="flex items-center justify-between mb-4">
@@ -801,7 +804,7 @@ const FicheApp = () => {
       </main>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 backdrop-blur-md bg-white/90 border-t border-blue-200/50 shadow-lg z-20">
+      <nav className="backdrop-blur-md bg-white/90 border-t border-blue-200/50 shadow-lg z-20">
         <div className="flex justify-around items-center py-2">
           <button 
             className={`flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'editor' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
