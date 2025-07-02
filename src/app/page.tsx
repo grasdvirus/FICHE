@@ -18,10 +18,6 @@ const getConversationId = (uid1: string, uid2: string) => {
 };
 
 const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNewMessage, onSendMessage, onBack }: any) => {
-  if (!conversation?.id || !user) return null;
-
-  const otherParticipantId = conversation.participantIds.find((id: string) => id !== user.uid);
-  const otherUser = usersCache[otherParticipantId];
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
   
   const scrollToBottom = () => {
@@ -31,6 +27,11 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
   useEffect(() => {
     scrollToBottom()
   }, [messages]);
+
+  if (!conversation?.id || !user) return null;
+
+  const otherParticipantId = conversation.participantIds.find((id: string) => id !== user.uid);
+  const otherUser = usersCache[otherParticipantId];
   
   return (
       <div className="h-full flex flex-col">
@@ -205,36 +206,38 @@ const FicheApp = () => {
   
   // Mark messages as read
   useEffect(() => {
-    if (!selectedConversation?.id || !user || !messages.length) {
-        return;
+    if (!selectedConversation?.id || !user?.uid || !messages.length) {
+      return;
     }
-
+  
     const markAsRead = async () => {
-        const conversationRef = doc(db, 'conversations', selectedConversation.id);
-        const batch = writeBatch(db);
-        let unreadCount = 0;
-
-        messages.forEach(msg => {
-            if (msg.senderId !== user.uid && !msg.readBy?.includes(user.uid)) {
-                const msgRef = doc(db, 'conversations', selectedConversation.id, 'messages', msg.id);
-                batch.update(msgRef, {
-                    readBy: arrayUnion(user.uid)
-                });
-                unreadCount++;
-            }
-        });
-        
-        if (unreadCount > 0) {
-            batch.update(conversationRef, {
-                [`unreadCounts.${user.uid}`]: 0
-            });
-
-            try {
-                await batch.commit();
-            } catch (error) {
-                console.error("Erreur lors de la mise à jour des messages comme lus:", error);
-            }
+      if (!selectedConversation || !selectedConversation.id) return;
+  
+      const conversationRef = doc(db, 'conversations', selectedConversation.id);
+      const batch = writeBatch(db);
+      let unreadCount = 0;
+  
+      messages.forEach(msg => {
+        if (msg.senderId !== user.uid && (!msg.readBy || !msg.readBy.includes(user.uid))) {
+          const msgRef = doc(db, 'conversations', selectedConversation.id, 'messages', msg.id);
+          batch.update(msgRef, {
+            readBy: arrayUnion(user.uid)
+          });
+          unreadCount++;
         }
+      });
+      
+      if (unreadCount > 0) {
+        batch.update(conversationRef, {
+          [`unreadCounts.${user.uid}`]: 0
+        });
+  
+        try {
+          await batch.commit();
+        } catch (error) {
+          console.error("Erreur lors de la mise à jour des messages comme lus:", error);
+        }
+      }
     };
     
     markAsRead();
@@ -363,41 +366,42 @@ const FicheApp = () => {
   };
   
   const handleStartConversation = async (otherUser: any) => {
-      if (!user) return;
-  
-      const conversationId = getConversationId(user.uid, otherUser.uid);
-      const conversationRef = doc(db, "conversations", conversationId);
-      
-      try {
-          const conversationSnap = await getDoc(conversationRef);
-          
-          if (!conversationSnap.exists()) {
-              const newConvoData = {
-                  participantIds: [user.uid, otherUser.uid],
-                  createdAt: serverTimestamp(),
-                  updatedAt: serverTimestamp(),
-                  type: 'direct',
-                  lastMessage: null,
-                  unreadCounts: {
-                      [user.uid]: 0,
-                      [otherUser.uid]: 0,
-                  },
-              };
-              await setDoc(conversationRef, newConvoData);
-              setSelectedConversation({ id: conversationId, ...newConvoData });
-          } else {
-              setSelectedConversation({ id: conversationSnap.id, ...conversationSnap.data() });
-          }
-          setShowNewMessageModal(false);
-      } catch (error: any) {
-          console.error("Erreur au démarrage de la conversation:", error);
-          toast({
-              title: "Erreur",
-              description: "Impossible de démarrer la conversation. " + (error?.message || ''),
-              variant: "destructive",
-          });
-      }
-  };
+    if (!user) return;
+
+    const conversationId = getConversationId(user.uid, otherUser.uid);
+    const conversationRef = doc(db, "conversations", conversationId);
+    
+    try {
+        const conversationSnap = await getDoc(conversationRef);
+        
+        let convoData;
+        if (!conversationSnap.exists()) {
+            convoData = {
+                participantIds: [user.uid, otherUser.uid],
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+                type: 'direct',
+                lastMessage: null,
+                unreadCounts: {
+                    [user.uid]: 0,
+                    [otherUser.uid]: 0,
+                },
+            };
+            await setDoc(conversationRef, convoData);
+        } else {
+            convoData = conversationSnap.data();
+        }
+        setSelectedConversation({ id: conversationId, ...convoData });
+        setShowNewMessageModal(false);
+    } catch (error: any) {
+        console.error("Erreur au démarrage de la conversation:", error);
+        toast({
+            title: "Erreur",
+            description: "Impossible de démarrer la conversation. " + (error?.message || ''),
+            variant: "destructive",
+        });
+    }
+};
 
 
   const handleSendMessage = async () => {
@@ -448,6 +452,8 @@ const FicheApp = () => {
       if (!user || !usersCache) return null;
       
       const otherParticipantId = conversation.participantIds.find((id: string) => id !== user.uid);
+      if (!otherParticipantId) return null;
+      
       const otherUser = usersCache[otherParticipantId];
       const lastMessage = conversation.lastMessage;
       const isOnline = presenceCache[otherParticipantId]?.state === 'online';
@@ -684,7 +690,7 @@ const FicheApp = () => {
         )}
 
         {activeTab === 'mail' && (
-          <div className="h-full">
+          <div className="h-full flex flex-col">
             {!user ? (
               <div className="flex flex-col items-center justify-center h-full px-4">
                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
@@ -713,40 +719,44 @@ const FicheApp = () => {
                     onBack={() => setSelectedConversation(null)}
                 />
             ) : (
-              <div className="h-full flex flex-col px-4 py-6 space-y-4 pb-24 overflow-y-auto">
+              <>
                 {/* Header avec recherche */}
-                <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-bold text-gray-900">Messages</h2>
-                  </div>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <input 
-                      type="text" 
-                      placeholder="Rechercher des conversations..."
-                      className="w-full pl-10 pr-4 py-3 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
-                    />
+                <div className="px-4 pt-6 shrink-0">
+                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-lg font-bold text-gray-900">Messages</h2>
+                    </div>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <input 
+                        type="text" 
+                        placeholder="Rechercher des conversations..."
+                        className="w-full pl-10 pr-4 py-3 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
+                      />
+                    </div>
                   </div>
                 </div>
 
                 {/* Filtres rapides */}
-                <div className="flex space-x-2 overflow-x-auto pb-2">
-                  <button className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full text-xs font-medium">
-                    Tous
-                  </button>
-                  <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                    Non lus
-                  </button>
-                   <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                    Favoris
-                  </button>
-                  <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                    Groupes
-                  </button>
+                <div className="px-4 pt-4 shrink-0">
+                  <div className="flex space-x-2 overflow-x-auto pb-2">
+                    <button className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full text-xs font-medium">
+                      Tous
+                    </button>
+                    <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                      Non lus
+                    </button>
+                     <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                      Favoris
+                    </button>
+                    <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                      Groupes
+                    </button>
+                  </div>
                 </div>
 
                 {/* Liste des conversations */}
-                <div className="flex-1 overflow-y-auto space-y-3">
+                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-28">
                    {conversations.length > 0 ? (
                       conversations.map(renderConversationListItem)
                    ) : (
@@ -763,7 +773,7 @@ const FicheApp = () => {
                     <Plus className="h-6 w-6 text-white" />
                   </button>
                 </div>
-              </div>
+              </>
             )}
           </div>
         )}
