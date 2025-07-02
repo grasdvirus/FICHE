@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState } from 'react';
@@ -222,22 +223,215 @@ const FicheApp = () => {
         )}
 
         {activeTab === 'mail' && (
-          <div className="px-4 py-6">
-            <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
-              <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Mail className="h-8 w-8 text-white" />
-              </div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">Messages</h2>
-              <p className="text-sm text-gray-600 mb-6">Envoyez et recevez des messages</p>
-              {!isLoggedIn && (
+          <div className="px-4 py-6 space-y-4">
+            {!isLoggedIn ? (
+              <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
+                <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Mail className="h-8 w-8 text-white" />
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Messages</h2>
+                <p className="text-sm text-gray-600 mb-6">Envoyez et recevez des messages</p>
                 <button 
                   onClick={() => setShowLogin(true)}
                   className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-6 py-3 rounded-lg text-sm font-medium"
                 >
                   Se connecter
                 </button>
-              )}
-            </div>
+              </div>
+            ) : (
+              <>
+                {/* Header avec recherche */}
+                <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-bold text-gray-900">Messages</h2>
+                    <button className="w-8 h-8 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
+                      <Plus className="h-4 w-4 text-white" />
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input 
+                      type="text" 
+                      placeholder="Rechercher des conversations..."
+                      className="w-full pl-10 pr-4 py-3 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Filtres rapides */}
+                <div className="flex space-x-2 overflow-x-auto pb-2">
+                  <button className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full text-xs font-medium">
+                    Tous
+                  </button>
+                  <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                    Non lus
+                  </button>
+                  <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                    Favoris
+                  </button>
+                  <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                    Groupes
+                  </button>
+                </div>
+
+                {/* Liste des conversations */}
+                <div className="space-y-3">
+                  {/* Conversation 1 - Non lue */}
+                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300">
+                    <div className="flex items-start space-x-3">
+                      <div className="relative">
+                        <div className="w-12 h-12 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center">
+                          <span className="text-white font-semibold text-sm">MA</span>
+                        </div>
+                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white"></div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h3 className="font-semibold text-gray-900 text-sm truncate">Marie Dubois</h3>
+                          <span className="text-xs text-gray-500">10:30</span>
+                        </div>
+                        <p className="text-xs text-gray-600 line-clamp-2 mb-2">
+                          Salut ! J'ai vu ton message sur le projet. Est-ce qu'on peut en discuter aujourd'hui ?
+                        </p>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                            <span className="text-xs text-green-600">En ligne</span>
+                          </div>
+                          <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                            <span className="text-white text-xs font-medium">2</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Conversation 2 - Groupe */}
+                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300">
+                    <div className="flex items-start space-x-3">
+                      <div className="relative">
+                        <div className="w-12 h-12 bg-gradient-to-r from-purple-400 to-pink-500 rounded-full flex items-center justify-center">
+                          <Users className="h-6 w-6 text-white" />
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h3 className="font-semibold text-gray-900 text-sm truncate">Équipe Design</h3>
+                          <span className="text-xs text-gray-500">Hier</span>
+                        </div>
+                        <p className="text-xs text-gray-600 line-clamp-2 mb-2">
+                          <span className="font-medium">Thomas:</span> Les maquettes sont prêtes pour review 👍
+                        </p>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-1">
+                            <div className="flex -space-x-1">
+                              <div className="w-4 h-4 bg-blue-400 rounded-full border border-white"></div>
+                              <div className="w-4 h-4 bg-green-400 rounded-full border border-white"></div>
+                              <div className="w-4 h-4 bg-yellow-400 rounded-full border border-white"></div>
+                            </div>
+                            <span className="text-xs text-gray-500 ml-1">+3</span>
+                          </div>
+                          <div className="text-xs text-gray-400">5 membres</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Conversation 3 - Normale */}
+                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300">
+                    <div className="flex items-start space-x-3">
+                      <div className="relative">
+                        <div className="w-12 h-12 bg-gradient-to-r from-orange-400 to-red-500 rounded-full flex items-center justify-center">
+                          <span className="text-white font-semibold text-sm">JM</span>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h3 className="font-semibold text-gray-900 text-sm truncate">Jean Martin</h3>
+                          <span className="text-xs text-gray-500">Mar</span>
+                        </div>
+                        <p className="text-xs text-gray-500 line-clamp-2 mb-2">
+                          Merci pour ton aide sur le dossier client. Tout est bon maintenant !
+                        </p>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                            <span className="text-xs text-gray-400">Hors ligne</span>
+                          </div>
+                          <div className="text-xs text-blue-600">✓✓</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Conversation 4 - IA Assistant */}
+                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300">
+                    <div className="flex items-start space-x-3">
+                      <div className="relative">
+                        <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center">
+                          <Bot className="h-6 w-6 text-white" />
+                        </div>
+                        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
+                          <Sparkles className="h-2 w-2 text-white" />
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center space-x-2">
+                            <h3 className="font-semibold text-gray-900 text-sm truncate">Assistant FICHE</h3>
+                            <div className="px-2 py-0.5 bg-gradient-to-r from-blue-100 to-indigo-100 rounded-full">
+                              <span className="text-xs text-blue-600 font-medium">IA</span>
+                            </div>
+                          </div>
+                          <span className="text-xs text-gray-500">Lun</span>
+                        </div>
+                        <p className="text-xs text-gray-600 line-clamp-2 mb-2">
+                          J'ai analysé votre dernier texte. Voulez-vous voir mes suggestions d'amélioration ?
+                        </p>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-blue-600">Toujours disponible</span>
+                          </div>
+                          <div className="text-xs text-blue-600">✓</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Conversation 5 - Archivée */}
+                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-gray-200/50 p-4 active:bg-gray-50 transition-all duration-300 opacity-60">
+                    <div className="flex items-start space-x-3">
+                      <div className="relative">
+                        <div className="w-12 h-12 bg-gradient-to-r from-gray-400 to-gray-500 rounded-full flex items-center justify-center">
+                          <span className="text-white font-semibold text-sm">LC</span>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h3 className="font-semibold text-gray-700 text-sm truncate">Lisa Chen</h3>
+                          <span className="text-xs text-gray-400">03/06</span>
+                        </div>
+                        <p className="text-xs text-gray-500 line-clamp-2 mb-2">
+                          Parfait pour la présentation de demain. À bientôt !
+                        </p>
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs text-gray-400">Archivée</div>
+                          <div className="text-xs text-gray-400">✓✓</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bouton flottant pour nouveau message */}
+                <div className="fixed bottom-24 right-4 z-10">
+                  <button className="w-14 h-14 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center shadow-xl">
+                    <Plus className="h-6 w-6 text-white" />
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
