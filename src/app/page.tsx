@@ -213,6 +213,8 @@ const FicheApp = () => {
               displayName: currentUser.displayName || currentUser.email?.split('@')[0],
               email: currentUser.email,
               photoURL: currentUser.photoURL,
+              createdAt: serverTimestamp(),
+              visibility: 'public',
           }, { merge: true });
         } catch(error) {
             console.error("Erreur de sauvegarde de l'utilisateur:", error);
@@ -345,41 +347,43 @@ const FicheApp = () => {
   };
   
   const handleStartConversation = async (otherUser: any) => {
-      if (!user) return;
-  
-      const conversationId = getConversationId(user.uid, otherUser.uid);
-      const conversationRef = doc(db, "conversations", conversationId);
-      
-      try {
-        const conversationSnap = await getDoc(conversationRef);
-        let convoData;
+    if (!user) return;
 
-        if (!conversationSnap.exists()) {
-            convoData = {
-                id: conversationId,
-                participantIds: [user.uid, otherUser.uid],
-                participants: {
-                  [user.uid]: { displayName: user.displayName, photoURL: user.photoURL },
-                  [otherUser.uid]: { displayName: otherUser.displayName, photoURL: otherUser.photoURL },
-                },
-                lastMessage: null,
-                updatedAt: serverTimestamp(),
-            };
-            await setDoc(conversationRef, convoData);
-        } else {
-            convoData = {id: conversationSnap.id, ...conversationSnap.data()};
-        }
-        
-        setSelectedConversation(convoData);
-        setShowNewMessageModal(false);
-      } catch (error) {
-        console.error("Erreur au démarrage de la conversation:", error);
-        toast({
-          title: "Erreur",
-          description: "Impossible de démarrer la conversation.",
-          variant: "destructive",
-        });
+    const conversationId = getConversationId(user.uid, otherUser.uid);
+    const conversationRef = doc(db, "conversations", conversationId);
+
+    try {
+      const conversationSnap = await getDoc(conversationRef);
+      let convoData;
+
+      if (!conversationSnap.exists()) {
+        convoData = {
+          // Fields for validation
+          participants: [user.uid, otherUser.uid],
+          createdAt: serverTimestamp(),
+          type: 'direct',
+
+          // Fields for app logic
+          participantIds: [user.uid, otherUser.uid], // Keep this for client-side queries
+          lastMessage: null,
+          updatedAt: serverTimestamp(),
+        };
+        await setDoc(conversationRef, convoData);
+      } else {
+        convoData = { id: conversationSnap.id, ...conversationSnap.data() };
       }
+      
+      setSelectedConversation(convoData);
+      setShowNewMessageModal(false);
+    } catch (error) {
+      console.error("Erreur au démarrage de la conversation:", error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de démarrer la conversation. Veuillez vérifier vos permissions Firestore et que l'index a été créé.",
+        variant: "destructive",
+        duration: 10000,
+      });
+    }
   };
 
   const handleSendMessage = async () => {
@@ -393,6 +397,7 @@ const FicheApp = () => {
           content: newMessage,
           senderId: user.uid,
           timestamp: serverTimestamp(),
+          type: 'text',
           readBy: [user.uid]
       });
 
