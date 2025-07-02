@@ -208,13 +208,15 @@ const FicheApp = () => {
         setShowLogin(false);
         const userRef = doc(db, "users", currentUser.uid);
         try {
+          // Create or update user document to be compliant with security rules
           await setDoc(userRef, {
               uid: currentUser.uid,
-              displayName: currentUser.displayName || currentUser.email?.split('@')[0],
+              displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Anonymous',
               email: currentUser.email,
               photoURL: currentUser.photoURL,
               createdAt: serverTimestamp(),
               visibility: 'public',
+              isVerified: currentUser.emailVerified,
           }, { merge: true });
         } catch(error) {
             console.error("Erreur de sauvegarde de l'utilisateur:", error);
@@ -358,15 +360,12 @@ const FicheApp = () => {
 
       if (!conversationSnap.exists()) {
         convoData = {
-          // Fields for validation
           participants: [user.uid, otherUser.uid],
+          participantIds: [user.uid, otherUser.uid].sort(),
           createdAt: serverTimestamp(),
-          type: 'direct',
-
-          // Fields for app logic
-          participantIds: [user.uid, otherUser.uid], // Keep this for client-side queries
-          lastMessage: null,
           updatedAt: serverTimestamp(),
+          type: 'direct',
+          lastMessage: null,
         };
         await setDoc(conversationRef, convoData);
       } else {
@@ -375,11 +374,15 @@ const FicheApp = () => {
       
       setSelectedConversation(convoData);
       setShowNewMessageModal(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erreur au démarrage de la conversation:", error);
+      let description = "Impossible de démarrer la conversation. Veuillez réessayer.";
+      if (error.code === 'permission-denied') {
+        description = "Permission refusée. Assurez-vous que les règles de sécurité Firestore sont correctement configurées pour autoriser cette action.";
+      }
       toast({
-        title: "Erreur",
-        description: "Impossible de démarrer la conversation. Veuillez vérifier vos permissions Firestore et que l'index a été créé.",
+        title: "Erreur de Conversation",
+        description: description,
         variant: "destructive",
         duration: 10000,
       });
