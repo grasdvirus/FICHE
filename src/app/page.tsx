@@ -174,7 +174,7 @@ const FicheApp = () => {
   }, [user]);
 
   useEffect(() => {
-    if (!selectedConversation) {
+    if (!selectedConversation?.id) {
         setMessages([]);
         return;
     }
@@ -208,7 +208,6 @@ const FicheApp = () => {
         setShowLogin(false);
         const userRef = doc(db, "users", currentUser.uid);
         try {
-          // Create or update user document to be compliant with security rules
           const userDoc = await getDoc(userRef);
           if (!userDoc.exists()) {
             await setDoc(userRef, {
@@ -218,13 +217,13 @@ const FicheApp = () => {
                 photoURL: currentUser.photoURL,
                 createdAt: serverTimestamp(),
                 isVerified: currentUser.emailVerified,
-            }, { merge: true });
+            });
           }
-        } catch(error) {
+        } catch(error: any) {
             console.error("Erreur de sauvegarde de l'utilisateur:", error);
              toast({
                 title: "Erreur de sauvegarde",
-                description: "Impossible d'enregistrer les informations utilisateur.",
+                description: `Impossible d'enregistrer les informations utilisateur. Erreur: ${error.message}`,
                 variant: "destructive",
             });
         }
@@ -352,14 +351,13 @@ const FicheApp = () => {
   
   const handleStartConversation = async (otherUser: any) => {
     if (!user) return;
-
+  
     const conversationId = getConversationId(user.uid, otherUser.uid);
     const conversationRef = doc(db, "conversations", conversationId);
-
+  
     try {
       const conversationSnap = await getDoc(conversationRef);
-      let convoData;
-
+      
       if (!conversationSnap.exists()) {
         const newConvoData = {
           participants: [user.uid, otherUser.uid],
@@ -370,13 +368,12 @@ const FicheApp = () => {
           lastMessage: null,
         };
         await setDoc(conversationRef, newConvoData);
-        // Set the local state with the ID to prevent crash
-        convoData = { id: conversationId, ...newConvoData };
+        const newConvoForState = { id: conversationId, ...newConvoData };
+        setSelectedConversation(newConvoForState);
       } else {
-        convoData = { id: conversationSnap.id, ...conversationSnap.data() };
+        setSelectedConversation({ id: conversationSnap.id, ...conversationSnap.data() });
       }
       
-      setSelectedConversation(convoData);
       setShowNewMessageModal(false);
     } catch (error: any) {
       console.error("Erreur au démarrage de la conversation:", error);
@@ -400,8 +397,11 @@ const FicheApp = () => {
     const messagesRef = collection(conversationRef, "messages");
 
     try {
+      const messageContent = newMessage;
+      setNewMessage('');
+
       await addDoc(messagesRef, {
-          content: newMessage,
+          content: messageContent,
           senderId: user.uid,
           timestamp: serverTimestamp(),
           type: 'text',
@@ -410,14 +410,13 @@ const FicheApp = () => {
 
       await updateDoc(conversationRef, {
           lastMessage: {
-              content: newMessage,
+              content: messageContent,
               senderId: user.uid,
               timestamp: serverTimestamp()
           },
           updatedAt: serverTimestamp()
       });
 
-      setNewMessage('');
     } catch(error) {
       console.error("Erreur d'envoi du message:", error);
       toast({
@@ -468,6 +467,9 @@ const FicheApp = () => {
                     "Commencez la conversation !"
                 )}
               </p>
+               <div className="flex items-center justify-end">
+                {lastMessage?.senderId === user.uid && <CheckCheck className="h-4 w-4 text-blue-500" />}
+              </div>
             </div>
           </div>
         </div>
@@ -654,12 +656,12 @@ const FicheApp = () => {
           <div className="h-full">
             {!user ? (
               <div className="flex flex-col items-center justify-center h-full px-4">
-                <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
+                 <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
                   <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
                     <Mail className="h-8 w-8 text-white" />
                   </div>
                   <h2 className="text-xl font-bold text-gray-900 mb-2">Messages</h2>
-                  <p className="text-sm text-gray-600 mb-6">Connectez-vous pour voir vos messages.</p>
+                  <p className="text-sm text-gray-600 mb-6">Envoyez et recevez des messages</p>
                   <button 
                     onClick={() => setShowLogin(true)}
                     className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-6 py-3 rounded-lg text-sm font-medium"
@@ -685,9 +687,6 @@ const FicheApp = () => {
                 <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-bold text-gray-900">Messages</h2>
-                    <button onClick={handleOpenNewMessageModal} className="w-8 h-8 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
-                      <Plus className="h-4 w-4 text-white" />
-                    </button>
                   </div>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -699,15 +698,24 @@ const FicheApp = () => {
                   </div>
                 </div>
 
-                {/* Filtres rapides (non fonctionnels pour l'instant) */}
+                {/* Filtres rapides */}
                 <div className="flex space-x-2 overflow-x-auto pb-2">
                   <button className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full text-xs font-medium">
                     Tous
                   </button>
+                  <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                    Non lus
+                  </button>
+                   <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                    Favoris
+                  </button>
+                  <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                    Groupes
+                  </button>
                 </div>
 
                 {/* Liste des conversations */}
-                <div className="space-y-3">
+                <div className="space-y-3 pb-16">
                    {conversations.length > 0 ? (
                       conversations.map(renderConversationListItem)
                    ) : (
@@ -716,6 +724,13 @@ const FicheApp = () => {
                         <p className="text-sm">Commencez une nouvelle discussion !</p>
                      </div>
                    )}
+                </div>
+
+                {/* Bouton flottant pour nouveau message */}
+                <div className="fixed bottom-24 right-4 z-10">
+                  <button onClick={handleOpenNewMessageModal} className="w-14 h-14 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center shadow-xl">
+                    <Plus className="h-6 w-6 text-white" />
+                  </button>
                 </div>
               </div>
             )}
