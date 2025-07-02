@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -253,22 +254,28 @@ const FicheApp = () => {
       setUser(currentUser);
       if (currentUser) {
         setShowLogin(false);
+        // Ensure user document exists in Firestore
         const userRef = doc(db, "users", currentUser.uid);
         try {
-          const userDoc = await getDoc(userRef);
-          if (!userDoc.exists()) {
-             await setDoc(userRef, {
-                uid: currentUser.uid,
-                displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Anonymous',
-                email: currentUser.email,
-                photoURL: currentUser.photoURL,
-                createdAt: serverTimestamp(),
-                isVerified: currentUser.emailVerified,
-                visibility: 'public'
+          const userSnap = await getDoc(userRef);
+          if (!userSnap.exists()) {
+            await setDoc(doc(db, "users", currentUser.uid), {
+              uid: currentUser.uid,
+              email: currentUser.email,
+              displayName: currentUser.displayName || currentUser.email?.split('@')[0] || "Anonymous",
+              photoURL: currentUser.photoURL || null,
+              createdAt: serverTimestamp(),
+              isVerified: currentUser.emailVerified,
+              visibility: "public",
             });
           }
-        } catch(error: any) {
-            console.error("Erreur de sauvegarde de l'utilisateur:", error);
+        } catch (error: any) {
+          console.error("Erreur de synchronisation de l'utilisateur:", error);
+          toast({
+            title: "Erreur de synchronisation",
+            description: "Impossible de synchroniser les données utilisateur.",
+            variant: "destructive",
+          });
         }
       }
     });
@@ -307,30 +314,36 @@ const FicheApp = () => {
 
   const handleEmailSignUp = async () => {
     if (!email.trim() || !password.trim()) {
-        toast({ title: "Champs manquants", description: "Veuillez entrer une adresse e-mail et un mot de passe.", variant: "destructive" });
-        return;
+      toast({ title: "Champs manquants", description: "Veuillez entrer une adresse e-mail et un mot de passe.", variant: "destructive" });
+      return;
+    }
+    // Vérification de la robustesse du mot de passe
+    if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      toast({ title: "Mot de passe faible", description: "Minimum 8 caractères, une majuscule et un chiffre.", variant: "destructive" });
+      return;
     }
     setIsAuthLoading(true);
     try {
       // 1. Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const newUser = userCredential.user;
-      
+  
       // 2. Create user document in Firestore
       const userRef = doc(db, "users", newUser.uid);
-      await setDoc(userRef, {
-        uid: newUser.uid,
-        displayName: newUser.displayName || newUser.email?.split('@')[0] || 'Anonymous',
-        email: newUser.email,
-        photoURL: newUser.photoURL,
-        createdAt: serverTimestamp(),
-        isVerified: newUser.emailVerified,
-        visibility: 'public'
-      });
-
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) {
+        await setDoc(userRef, {
+          uid: newUser.uid,
+          email: newUser.email,
+          displayName: newUser.displayName || newUser.email?.split('@')[0] || "Anonymous",
+          photoURL: newUser.photoURL || null,
+          createdAt: serverTimestamp(),
+          isVerified: newUser.emailVerified,
+          visibility: "public",
+        });
+      }
       toast({ title: 'Compte créé', description: 'Votre compte a été créé avec succès.' });
     } catch (error: any) {
-      // This will now catch errors from both Auth and Firestore
       handleAuthError(error);
     } finally {
       setIsAuthLoading(false);
@@ -356,7 +369,23 @@ const FicheApp = () => {
   const handleGoogleSignIn = async () => {
     setIsAuthLoading(true);
     try {
-      await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+
+      // Ensure user document exists after sign-in, as requested
+      const userRef = doc(db, "users", user.uid);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) {
+        await setDoc(userRef, {
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || user.email?.split('@')[0] || "Anonymous",
+          photoURL: user.photoURL || null,
+          createdAt: serverTimestamp(),
+          isVerified: user.emailVerified,
+          visibility: "public",
+        });
+      }
       toast({ title: 'Connexion réussie', description: 'Vous êtes maintenant connecté avec Google.' });
     } catch (error) {
       handleAuthError(error);
@@ -1062,3 +1091,5 @@ const handleDeleteConversation = async (conversationId: string | null) => {
 };
 
 export default FicheApp;
+
+    
