@@ -6,9 +6,7 @@ import { getDatabase } from "firebase/database";
 import { getStorage } from "firebase/storage";
 
 // Your web app's Firebase configuration
-// IMPORTANT: For Firebase Authentication to work, you must add your application's
-// domain (e.g., localhost, your-dev-server.com) to the list of "Authorized domains"
-// in the Firebase Console -> Authentication -> Settings tab.
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyA1W8CoSHsUbEIlHR8RNNeMAO8K-azj8QE",
   authDomain: "fiche-6c643.firebaseapp.com",
