@@ -312,9 +312,25 @@ const FicheApp = () => {
     }
     setIsAuthLoading(true);
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      // 1. Create user in Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const newUser = userCredential.user;
+      
+      // 2. Create user document in Firestore
+      const userRef = doc(db, "users", newUser.uid);
+      await setDoc(userRef, {
+        uid: newUser.uid,
+        displayName: newUser.displayName || newUser.email?.split('@')[0] || 'Anonymous',
+        email: newUser.email,
+        photoURL: newUser.photoURL,
+        createdAt: serverTimestamp(),
+        isVerified: newUser.emailVerified,
+        visibility: 'public'
+      });
+
       toast({ title: 'Compte créé', description: 'Votre compte a été créé avec succès.' });
-    } catch (error) {
+    } catch (error: any) {
+      // This will now catch errors from both Auth and Firestore
       handleAuthError(error);
     } finally {
       setIsAuthLoading(false);
