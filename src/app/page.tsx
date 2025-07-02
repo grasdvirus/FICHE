@@ -1,21 +1,27 @@
 
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck } from 'lucide-react';
 import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { useToast } from '@/hooks/use-toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser, GoogleAuthProvider } from 'firebase/auth';
-import { auth, googleProvider } from '@/lib/firebase';
+import { auth, googleProvider, db } from '@/lib/firebase';
+import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, limit, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
+import { formatDistanceToNow } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
+// Helper to get a consistent conversation ID
+const getConversationId = (uid1: string, uid2: string) => {
+  return uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
+};
 
 const FicheApp = () => {
   const [activeTab, setActiveTab] = useState('editor');
   const [userText, setUserText] = useState('');
-  const [showLogin, setShowLogin] = useState(false);
   
-  // States for AI analysis
+  // AI analysis states
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalyzeTextOutput | null>(null);
   
@@ -23,13 +29,87 @@ const FicheApp = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showLogin, setShowLogin] = useState(false);
   const { toast } = useToast();
 
+  // Messaging states
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [selectedConversation, setSelectedConversation] = useState<any | null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [showNewMessageModal, setShowNewMessageModal] = useState(false);
+  const [usersToMessage, setUsersToMessage] = useState<any[]>([]);
+  const [usersCache, setUsersCache] = useState<{[key: string]: any}>({});
+
+
+  // Fetch user data and cache it
+  const fetchUsersData = async (userIds: string[]) => {
+    const newUsersToFetch = userIds.filter(id => !usersCache[id]);
+    if (newUsersToFetch.length === 0) return;
+
+    const usersRef = collection(db, "users");
+    const q = query(usersRef, where("uid", "in", newUsersToFetch));
+    const querySnapshot = await getDocs(q);
+    const fetchedUsers: {[key: string]: any} = {};
+    querySnapshot.forEach((doc) => {
+      fetchedUsers[doc.data().uid] = doc.data();
+    });
+    setUsersCache(prev => ({...prev, ...fetchedUsers}));
+  };
+
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    if (!user) {
+      setConversations([]);
+      return;
+    }
+
+    const conversationsRef = collection(db, "conversations");
+    const q = query(conversationsRef, where("participantIds", "array-contains", user.uid), orderBy("updatedAt", "desc"));
+    
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const convos = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setConversations(convos);
+
+      // Fetch data for all participants in the conversations
+      const allParticipantIds = convos.flatMap(c => c.participantIds);
+      const uniqueParticipantIds = [...new Set(allParticipantIds)];
+      fetchUsersData(uniqueParticipantIds);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  useEffect(() => {
+    if (!selectedConversation) {
+        setMessages([]);
+        return;
+    }
+
+    const messagesRef = collection(db, "conversations", selectedConversation.id, "messages");
+    const q = query(messagesRef, orderBy("timestamp", "asc"));
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const msgs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setMessages(msgs);
+    });
+
+    return () => unsubscribe();
+  }, [selectedConversation]);
+
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         setShowLogin(false);
+        // Add or update user in 'users' collection
+        const userRef = doc(db, "users", currentUser.uid);
+        await setDoc(userRef, {
+            uid: currentUser.uid,
+            displayName: currentUser.displayName || currentUser.email?.split('@')[0],
+            email: currentUser.email,
+            photoURL: currentUser.photoURL,
+        }, { merge: true });
       }
     });
     return () => unsubscribe();
@@ -93,6 +173,7 @@ const FicheApp = () => {
 
   const handleSignOut = async () => {
     await signOut(auth);
+    setSelectedConversation(null);
     toast({ title: 'Déconnexion', description: 'Vous avez été déconnecté.' });
   };
 
@@ -107,7 +188,7 @@ const FicheApp = () => {
         return;
     }
     setIsAnalyzing(true);
-    setAnalysisResult(null); // Clear previous results
+    setAnalysisResult(null);
     try {
         const result = await analyzeText({ text: userText });
         setAnalysisResult(result);
@@ -123,6 +204,185 @@ const FicheApp = () => {
     }
   };
 
+  const handleOpenNewMessageModal = async () => {
+    if (!user) return;
+    const usersRef = collection(db, "users");
+    const q = query(usersRef, where("uid", "!=", user.uid));
+    const querySnapshot = await getDocs(q);
+    const allUsers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    setUsersToMessage(allUsers);
+    setShowNewMessageModal(true);
+  };
+  
+  const handleStartConversation = async (otherUser: any) => {
+      if (!user) return;
+  
+      const conversationId = getConversationId(user.uid, otherUser.uid);
+      const conversationRef = doc(db, "conversations", conversationId);
+      
+      const conversationSnap = await getDoc(conversationRef);
+      let convoData;
+
+      if (!conversationSnap.exists()) {
+          convoData = {
+              id: conversationId,
+              participantIds: [user.uid, otherUser.uid],
+              participants: {
+                [user.uid]: { displayName: user.displayName, photoURL: user.photoURL },
+                [otherUser.uid]: { displayName: otherUser.displayName, photoURL: otherUser.photoURL },
+              },
+              lastMessage: null,
+              updatedAt: serverTimestamp(),
+          };
+          await setDoc(conversationRef, convoData);
+      } else {
+          convoData = {id: conversationSnap.id, ...conversationSnap.data()};
+      }
+      
+      setSelectedConversation(convoData);
+      setShowNewMessageModal(false);
+  };
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !user || !selectedConversation) return;
+
+    const conversationRef = doc(db, "conversations", selectedConversation.id);
+    const messagesRef = collection(conversationRef, "messages");
+
+    await addDoc(messagesRef, {
+        content: newMessage,
+        senderId: user.uid,
+        timestamp: serverTimestamp(),
+        readBy: [user.uid]
+    });
+
+    await updateDoc(conversationRef, {
+        lastMessage: {
+            content: newMessage,
+            senderId: user.uid,
+            timestamp: serverTimestamp()
+        },
+        updatedAt: serverTimestamp()
+    });
+
+    setNewMessage('');
+  };
+
+  const renderConversationListItem = (conversation: any) => {
+      if (!user || !usersCache) return null;
+      
+      const otherParticipantId = conversation.participantIds.find((id: string) => id !== user.uid);
+      const otherUser = usersCache[otherParticipantId];
+      const lastMessage = conversation.lastMessage;
+
+      if (!otherUser) return null; // Or a loading skeleton
+
+      return (
+        <div key={conversation.id} onClick={() => setSelectedConversation(conversation)} className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300 cursor-pointer">
+          <div className="flex items-start space-x-3">
+            <div className="relative">
+              <div className="w-12 h-12 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center">
+                {otherUser.photoURL ? (
+                  <img src={otherUser.photoURL} alt={otherUser.displayName} className="w-full h-full rounded-full object-cover" />
+                ) : (
+                  <span className="text-white font-semibold text-sm">{otherUser.displayName?.charAt(0).toUpperCase()}</span>
+                )}
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="font-semibold text-gray-900 text-sm truncate">{otherUser.displayName}</h3>
+                {lastMessage?.timestamp && (
+                   <span className="text-xs text-gray-500">
+                    {formatDistanceToNow(lastMessage.timestamp.toDate(), { addSuffix: true, locale: fr })}
+                   </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-600 line-clamp-2 mb-2">
+                {lastMessage ? (
+                    <>
+                     {lastMessage.senderId === user.uid && "Vous: "}
+                     {lastMessage.content}
+                    </>
+                ) : (
+                    "Commencez la conversation !"
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+  }
+
+  const renderChatView = () => {
+    if (!selectedConversation || !user) return null;
+
+    const otherParticipantId = selectedConversation.participantIds.find((id: string) => id !== user.uid);
+    const otherUser = usersCache[otherParticipantId];
+    const messagesEndRef = useRef<null | HTMLDivElement>(null);
+    
+    const scrollToBottom = () => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    }
+  
+    useEffect(() => {
+      scrollToBottom()
+    }, [messages]);
+    
+    return (
+        <div className="h-full flex flex-col">
+            {/* Header */}
+            <div className="flex items-center p-4 border-b border-blue-200/50 backdrop-blur-lg bg-white/90">
+                <button onClick={() => setSelectedConversation(null)} className="mr-4 p-2 rounded-full hover:bg-gray-200">
+                    <ArrowLeft className="h-5 w-5 text-gray-700" />
+                </button>
+                <div className="w-10 h-10 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center mr-3">
+                   <span className="text-white font-semibold text-lg">{otherUser?.displayName?.charAt(0).toUpperCase()}</span>
+                </div>
+                <h2 className="font-semibold text-gray-900">{otherUser?.displayName}</h2>
+            </div>
+
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.map(msg => (
+                    <div key={msg.id} className={`flex ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-blue-500 text-white rounded-br-none' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
+                            <p className="text-sm">{msg.content}</p>
+                            {msg.timestamp && (
+                                <p className={`text-xs mt-1 ${msg.senderId === user.uid ? 'text-blue-100' : 'text-gray-500'} text-right`}>
+                                    {new Date(msg.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                ))}
+                 <div ref={messagesEndRef} />
+            </div>
+
+            {/* Input Area */}
+            <div className="p-4 border-t border-blue-200/50 backdrop-blur-lg bg-white/90">
+                <div className="flex items-center space-x-2">
+                    <input 
+                        type="text"
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                        placeholder="Écrivez un message..."
+                        className="flex-1 w-full p-3 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
+                    />
+                    <button 
+                        onClick={handleSendMessage}
+                        className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white disabled:opacity-50"
+                        disabled={!newMessage.trim()}
+                    >
+                        <Send className="h-5 w-5" />
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+  };
+  
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative overflow-hidden">
@@ -170,7 +430,7 @@ const FicheApp = () => {
       </header>
 
       {/* Main Content */}
-      <main className="relative z-10 pb-20">
+      <main className="relative z-10 pb-20 h-[calc(100vh-61px)]">
         {activeTab === 'editor' && (
           <div className="px-4 py-6 space-y-6">
             {/* Hero Card */}
@@ -301,28 +561,32 @@ const FicheApp = () => {
         )}
 
         {activeTab === 'mail' && (
-          <div className="px-4 py-6 space-y-4">
+          <div className="h-full">
             {!user ? (
-              <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
-                <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Mail className="h-8 w-8 text-white" />
+              <div className="flex flex-col items-center justify-center h-full px-4">
+                <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
+                  <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <Mail className="h-8 w-8 text-white" />
+                  </div>
+                  <h2 className="text-xl font-bold text-gray-900 mb-2">Messages</h2>
+                  <p className="text-sm text-gray-600 mb-6">Connectez-vous pour voir vos messages.</p>
+                  <button 
+                    onClick={() => setShowLogin(true)}
+                    className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-6 py-3 rounded-lg text-sm font-medium"
+                  >
+                    Se connecter
+                  </button>
                 </div>
-                <h2 className="text-xl font-bold text-gray-900 mb-2">Messages</h2>
-                <p className="text-sm text-gray-600 mb-6">Envoyez et recevez des messages</p>
-                <button 
-                  onClick={() => setShowLogin(true)}
-                  className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-6 py-3 rounded-lg text-sm font-medium"
-                >
-                  Se connecter
-                </button>
               </div>
+            ) : selectedConversation ? (
+                renderChatView()
             ) : (
-              <>
+              <div className="px-4 py-6 space-y-4">
                 {/* Header avec recherche */}
                 <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4">
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-bold text-gray-900">Messages</h2>
-                    <button className="w-8 h-8 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
+                    <button onClick={handleOpenNewMessageModal} className="w-8 h-8 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
                       <Plus className="h-4 w-4 text-white" />
                     </button>
                   </div>
@@ -336,179 +600,25 @@ const FicheApp = () => {
                   </div>
                 </div>
 
-                {/* Filtres rapides */}
+                {/* Filtres rapides (non fonctionnels pour l'instant) */}
                 <div className="flex space-x-2 overflow-x-auto pb-2">
                   <button className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full text-xs font-medium">
                     Tous
-                  </button>
-                  <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                    Non lus
-                  </button>
-                  <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                    Favoris
-                  </button>
-                  <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                    Groupes
                   </button>
                 </div>
 
                 {/* Liste des conversations */}
                 <div className="space-y-3">
-                  {/* Conversation 1 - Non lue */}
-                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300">
-                    <div className="flex items-start space-x-3">
-                      <div className="relative">
-                        <div className="w-12 h-12 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center">
-                          <span className="text-white font-semibold text-sm">MA</span>
-                        </div>
-                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white"></div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="font-semibold text-gray-900 text-sm truncate">Marie Dubois</h3>
-                          <span className="text-xs text-gray-500">10:30</span>
-                        </div>
-                        <p className="text-xs text-gray-600 line-clamp-2 mb-2">
-                          Salut ! J'ai vu ton message sur le projet. Est-ce qu'on peut en discuter aujourd'hui ?
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span className="text-xs text-green-600">En ligne</span>
-                          </div>
-                          <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-                            <span className="text-white text-xs font-medium">2</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Conversation 2 - Groupe */}
-                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300">
-                    <div className="flex items-start space-x-3">
-                      <div className="relative">
-                        <div className="w-12 h-12 bg-gradient-to-r from-purple-400 to-pink-500 rounded-full flex items-center justify-center">
-                          <Users className="h-6 w-6 text-white" />
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="font-semibold text-gray-900 text-sm truncate">Équipe Design</h3>
-                          <span className="text-xs text-gray-500">Hier</span>
-                        </div>
-                        <p className="text-xs text-gray-600 line-clamp-2 mb-2">
-                          <span className="font-medium">Thomas:</span> Les maquettes sont prêtes pour review 👍
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-1">
-                            <div className="flex -space-x-1">
-                              <div className="w-4 h-4 bg-blue-400 rounded-full border border-white"></div>
-                              <div className="w-4 h-4 bg-green-400 rounded-full border border-white"></div>
-                              <div className="w-4 h-4 bg-yellow-400 rounded-full border border-white"></div>
-                            </div>
-                            <span className="text-xs text-gray-500 ml-1">+3</span>
-                          </div>
-                          <div className="text-xs text-gray-400">5 membres</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Conversation 3 - Normale */}
-                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300">
-                    <div className="flex items-start space-x-3">
-                      <div className="relative">
-                        <div className="w-12 h-12 bg-gradient-to-r from-orange-400 to-red-500 rounded-full flex items-center justify-center">
-                          <span className="text-white font-semibold text-sm">JM</span>
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="font-semibold text-gray-900 text-sm truncate">Jean Martin</h3>
-                          <span className="text-xs text-gray-500">Mar</span>
-                        </div>
-                        <p className="text-xs text-gray-500 line-clamp-2 mb-2">
-                          Merci pour ton aide sur le dossier client. Tout est bon maintenant !
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                            <span className="text-xs text-gray-400">Hors ligne</span>
-                          </div>
-                          <div className="text-xs text-blue-600">✓✓</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Conversation 4 - IA Assistant */}
-                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300">
-                    <div className="flex items-start space-x-3">
-                      <div className="relative">
-                        <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center">
-                          <Bot className="h-6 w-6 text-white" />
-                        </div>
-                        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
-                          <Sparkles className="h-2 w-2 text-white" />
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-center space-x-2">
-                            <h3 className="font-semibold text-gray-900 text-sm truncate">Assistant FICHE</h3>
-                            <div className="px-2 py-0.5 bg-gradient-to-r from-blue-100 to-indigo-100 rounded-full">
-                              <span className="text-xs text-blue-600 font-medium">IA</span>
-                            </div>
-                          </div>
-                          <span className="text-xs text-gray-500">Lun</span>
-                        </div>
-                        <p className="text-xs text-gray-600 line-clamp-2 mb-2">
-                          J'ai analysé votre dernier texte. Voulez-vous voir mes suggestions d'amélioration ?
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-xs text-blue-600">Toujours disponible</span>
-                          </div>
-                          <div className="text-xs text-blue-600">✓</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Conversation 5 - Archivée */}
-                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-gray-200/50 p-4 active:bg-gray-50 transition-all duration-300 opacity-60">
-                    <div className="flex items-start space-x-3">
-                      <div className="relative">
-                        <div className="w-12 h-12 bg-gradient-to-r from-gray-400 to-gray-500 rounded-full flex items-center justify-center">
-                          <span className="text-white font-semibold text-sm">LC</span>
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="font-semibold text-gray-700 text-sm truncate">Lisa Chen</h3>
-                          <span className="text-xs text-gray-400">03/06</span>
-                        </div>
-                        <p className="text-xs text-gray-500 line-clamp-2 mb-2">
-                          Parfait pour la présentation de demain. À bientôt !
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <div className="text-xs text-gray-400">Archivée</div>
-                          <div className="text-xs text-gray-400">✓✓</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                   {conversations.length > 0 ? (
+                      conversations.map(renderConversationListItem)
+                   ) : (
+                     <div className="text-center text-gray-500 py-10">
+                        <p>Aucune conversation pour le moment.</p>
+                        <p className="text-sm">Commencez une nouvelle discussion !</p>
+                     </div>
+                   )}
                 </div>
-
-                {/* Bouton flottant pour nouveau message */}
-                <div className="fixed bottom-24 right-4 z-10">
-                  <button className="w-14 h-14 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full flex items-center justify-center shadow-xl">
-                    <Plus className="h-6 w-6 text-white" />
-                  </button>
-                </div>
-              </>
+              </div>
             )}
           </div>
         )}
@@ -541,7 +651,7 @@ const FicheApp = () => {
         <div className="flex justify-around items-center py-2">
           <button 
             className={`flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'editor' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
-            onClick={() => setActiveTab('editor')}
+            onClick={() => { setActiveTab('editor'); setSelectedConversation(null); }}
           >
             <Home className="h-5 w-5 mb-1" />
             <span className="text-xs font-medium">Accueil</span>
@@ -555,7 +665,7 @@ const FicheApp = () => {
           </button>
           <button 
             className={`flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'community' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
-            onClick={() => setActiveTab('community')}
+            onClick={() => { setActiveTab('community'); setSelectedConversation(null); }}
           >
             <Users className="h-5 w-5 mb-1" />
             <span className="text-xs font-medium">Communautés</span>
@@ -567,7 +677,7 @@ const FicheApp = () => {
         </div>
       </nav>
 
-      {/* Login Modal - Mobile Optimized */}
+      {/* Login Modal */}
       {showLogin && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center">
           <div className="backdrop-blur-lg bg-white/95 rounded-t-3xl shadow-2xl border-t border-blue-200/50 w-full max-w-md p-6 animate-in slide-in-from-bottom duration-300">
@@ -576,7 +686,7 @@ const FicheApp = () => {
               <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto">
                 <User className="h-8 w-8 text-white" />
               </div>
-              <h2 className="text-xl font-bold text-gray-900">Connexion</h2>
+              <h2 className="text-xl font-bold text-gray-900">Accès à votre compte</h2>
               <div className="space-y-4">
                 <input 
                   type="email" 
@@ -606,23 +716,18 @@ const FicheApp = () => {
                 >
                   Créer un compte
                 </button>
-
                 <div className="relative flex py-2 items-center">
                     <div className="flex-grow border-t border-gray-300"></div>
                     <span className="flex-shrink mx-4 text-gray-400 text-xs">OU</span>
                     <div className="flex-grow border-t border-gray-300"></div>
                 </div>
-
                 <button 
                   onClick={handleGoogleSignIn}
                   className="w-full bg-white border-2 border-gray-200 text-gray-700 py-3 rounded-xl font-medium flex items-center justify-center space-x-2"
                 >
-                    <svg className="w-5 h-5" viewBox="0 0 48 48">
-                        <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571l6.19,5.238C42.021,35.596,44,30.138,44,24C44,22.659,43.862,21.35,43.611,20.083z"></path>
-                    </svg>
-                    <span>Se connecter avec Google</span>
+                    <svg className="w-5 h-5" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571l6.19,5.238C42.021,35.596,44,30.138,44,24C44,22.659,43.862,21.35,43.611,20.083z"></path></svg>
+                    <span>Continuer avec Google</span>
                 </button>
-
                 <button 
                   onClick={() => setShowLogin(false)}
                   className="w-full border-2 border-gray-200 text-gray-600 py-3 rounded-xl font-medium mt-4"
@@ -634,10 +739,37 @@ const FicheApp = () => {
           </div>
         </div>
       )}
+
+      {/* New Message Modal */}
+      {showNewMessageModal && (
+         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+                <div className="p-4 border-b">
+                    <h2 className="text-lg font-bold text-center">Nouveau Message</h2>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                    {usersToMessage.map(u => (
+                        <div key={u.id} onClick={() => handleStartConversation(u)} className="flex items-center p-4 space-x-3 hover:bg-gray-100 cursor-pointer">
+                            <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full flex items-center justify-center">
+                                <span className="text-white font-semibold">{u.displayName?.charAt(0).toUpperCase()}</span>
+                            </div>
+                            <div className="flex-1">
+                                <h3 className="font-semibold text-gray-800">{u.displayName}</h3>
+                                <p className="text-sm text-gray-500">{u.email}</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                 <div className="p-4 border-t">
+                    <button onClick={() => setShowNewMessageModal(false)} className="w-full border-2 border-gray-200 text-gray-600 py-3 rounded-xl font-medium">
+                        Annuler
+                    </button>
+                 </div>
+            </div>
+         </div>
+      )}
     </div>
   );
 };
 
 export default FicheApp;
-
-    
