@@ -1,14 +1,16 @@
 {
   "rules": {
-    "communities": {
-      "$communityId": {
-        "messages": {
-          ".read": "auth != null",
-          "$messageId": {
-            ".write": "auth != null",
-            ".validate": "(!data.exists() && newData.child('from').val() === auth.uid && newData.hasChildren(['from', 'fromName', 'content', 'timestamp', 'readBy'])) || (data.exists() && newData.child('from').val() === data.child('from').val() && newData.child('fromName').val() === data.child('fromName').val() && newData.child('content').val() === data.child('content').val() && newData.child('timestamp').val() === data.child('timestamp').val())"
-          }
-        }
+    // Default to locked down for security
+    ".read": false,
+    ".write": false,
+
+    // Rules for user presence (online/offline status)
+    "status": {
+      // Any authenticated user can read presence data
+      ".read": "auth != null",
+      "$uid": {
+        // A user can only write to their own status node
+        ".write": "auth != null && auth.uid === $uid"
       }
     }
   }
