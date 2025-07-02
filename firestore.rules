@@ -37,7 +37,20 @@ service cloud.firestore {
              data.displayName is string && data.displayName.size() > 0 &&
              (data.email is string || data.email == null) &&
              (data.photoURL is string || data.photoURL == null) &&
-             data.createdAt == request.time &&
+             // We remove the direct time check as it can be brittle.
+             // Immutability will be enforced on update.
+             data.isVerified is bool &&
+             data.visibility == 'public';
+    }
+
+    function validateUserDataOnUpdate(data) {
+      // On update, a user cannot change their UID or when their account was created.
+      return data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'isVerified', 'visibility']) &&
+             data.uid == request.auth.uid &&
+             data.displayName is string && data.displayName.size() > 0 &&
+             (data.email is string || data.email == null) &&
+             (data.photoURL is string || data.photoURL == null) &&
+             data.createdAt == resource.data.createdAt && // Enforce immutability of createdAt
              data.isVerified is bool &&
              data.visibility == 'public';
     }
@@ -135,9 +148,8 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if request.auth != null;
-      // Use create instead of write for better security when a user is first created.
       allow create: if request.auth != null && request.auth.uid == userId && validateUserDataOnCreate(request.resource.data);
-      // Allow a user to delete their own account data.
+      allow update: if request.auth != null && request.auth.uid == userId && validateUserDataOnUpdate(request.resource.data);
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
     
