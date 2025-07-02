@@ -211,7 +211,7 @@ const FicheApp = () => {
     }
   
     const markAsRead = async () => {
-      if (!selectedConversation || !selectedConversation.id) return;
+      if (!selectedConversation?.id) return;
   
       const conversationRef = doc(db, 'conversations', selectedConversation.id);
       const batch = writeBatch(db);
@@ -374,9 +374,8 @@ const FicheApp = () => {
     try {
         const conversationSnap = await getDoc(conversationRef);
         
-        let convoData;
         if (!conversationSnap.exists()) {
-            convoData = {
+            const newConvoData = {
                 participantIds: [user.uid, otherUser.uid],
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
@@ -387,11 +386,11 @@ const FicheApp = () => {
                     [otherUser.uid]: 0,
                 },
             };
-            await setDoc(conversationRef, convoData);
+            await setDoc(conversationRef, newConvoData);
+            setSelectedConversation({ id: conversationId, ...newConvoData });
         } else {
-            convoData = conversationSnap.data();
+            setSelectedConversation({ id: conversationId, ...conversationSnap.data() });
         }
-        setSelectedConversation({ id: conversationId, ...convoData });
         setShowNewMessageModal(false);
     } catch (error: any) {
         console.error("Erreur au démarrage de la conversation:", error);
@@ -719,41 +718,40 @@ const FicheApp = () => {
                     onBack={() => setSelectedConversation(null)}
                 />
             ) : (
-              <>
-                {/* Header avec recherche */}
-                <div className="px-4 pt-6 shrink-0">
-                  <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-lg font-bold text-gray-900">Messages</h2>
-                    </div>
+              <div className="h-full flex flex-col">
+                <div className="flex flex-col shrink-0">
+                  {/* Header avec recherche */}
+                  <div className="px-4 pt-6 shrink-0">
+                    <h2 className="text-2xl font-bold text-gray-900 mb-4">Messages</h2>
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                       <input 
                         type="text" 
                         placeholder="Rechercher des conversations..."
-                        className="w-full pl-10 pr-4 py-3 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
+                        className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm shadow-sm"
                       />
+                    </div>
+                  </div>
+
+                  {/* Filtres rapides */}
+                  <div className="px-4 pt-4 shrink-0">
+                    <div className="flex space-x-2 overflow-x-auto pb-2">
+                      <button className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full text-xs font-medium">
+                        Tous
+                      </button>
+                      <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                        Non lus
+                      </button>
+                      <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                        Favoris
+                      </button>
+                      <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                        Groupes
+                      </button>
                     </div>
                   </div>
                 </div>
 
-                {/* Filtres rapides */}
-                <div className="px-4 pt-4 shrink-0">
-                  <div className="flex space-x-2 overflow-x-auto pb-2">
-                    <button className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full text-xs font-medium">
-                      Tous
-                    </button>
-                    <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                      Non lus
-                    </button>
-                     <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                      Favoris
-                    </button>
-                    <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
-                      Groupes
-                    </button>
-                  </div>
-                </div>
 
                 {/* Liste des conversations */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-28">
@@ -773,7 +771,7 @@ const FicheApp = () => {
                     <Plus className="h-6 w-6 text-white" />
                   </button>
                 </div>
-              </>
+              </div>
             )}
           </div>
         )}
