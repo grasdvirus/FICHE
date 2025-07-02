@@ -88,12 +88,14 @@ const FicheApp = () => {
               title: "Index Firestore manquant",
               description: "La base de données nécessite un index pour cette requête. Veuillez cliquer sur le lien dans la console d'erreurs de votre navigateur pour le créer.",
               variant: "destructive",
+              duration: 15000,
           });
       } else if (error.code === 'permission-denied') {
         toast({
-            title: "Erreur de permission",
-            description: "Vérifiez vos règles de sécurité Firestore pour autoriser la lecture des conversations.",
+            title: "Erreur de permission (Conversations)",
+            description: "Impossible de charger vos conversations. Assurez-vous que vos règles de sécurité Firestore autorisent la lecture de la collection 'conversations' lorsque vous êtes authentifié.",
             variant: "destructive",
+            duration: 15000,
         });
       }
     });
@@ -113,13 +115,14 @@ const FicheApp = () => {
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const msgs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setMessages(msgs);
-    }, (error) => {
+    }, (error: any) => {
         console.error("Erreur d'écoute des messages: ", error);
         if (error.code === 'permission-denied') {
           toast({
-              title: "Erreur de permission",
-              description: "Vérifiez vos règles de sécurité Firestore pour autoriser la lecture des messages.",
+              title: "Erreur de permission (Messages)",
+              description: "Impossible de charger les messages. Vérifiez que vos règles autorisent la lecture de la sous-collection 'messages' pour les participants à la conversation.",
               variant: "destructive",
+              duration: 15000,
           });
         }
     });
@@ -252,13 +255,22 @@ const FicheApp = () => {
         const allUsers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setUsersToMessage(allUsers);
         setShowNewMessageModal(true);
-    } catch(error) {
+    } catch(error: any) {
         console.error("Impossible de lister les utilisateurs:", error);
-         toast({
-            title: "Erreur",
-            description: "Impossible de charger la liste des utilisateurs. Vérifiez vos permissions Firestore.",
-            variant: "destructive",
-        });
+        if (error.code === 'permission-denied') {
+            toast({
+                title: "Erreur de permission (Utilisateurs)",
+                description: "Impossible de charger la liste des utilisateurs. Vérifiez que vos règles autorisent la lecture de la collection 'users'.",
+                variant: "destructive",
+                duration: 15000,
+            });
+        } else {
+             toast({
+                title: "Erreur",
+                description: "Impossible de charger la liste des utilisateurs.",
+                variant: "destructive",
+            });
+        }
     }
   };
   
@@ -839,5 +851,3 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
-
-    
