@@ -31,10 +31,10 @@ service cloud.firestore {
 
     // === VALIDATION FUNCTIONS ===
     function validateUserDataOnCreate(data) {
-      // More robust validation for user creation.
+      // Checks that only the allowed fields are present and correctly typed
       return data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'isVerified', 'visibility']) &&
              data.uid == request.auth.uid &&
-             data.displayName is string &&
+             data.displayName is string && data.displayName.size() > 0 &&
              (data.email is string || data.email == null) &&
              (data.photoURL is string || data.photoURL == null) &&
              data.isVerified is bool &&
@@ -109,19 +109,19 @@ service cloud.firestore {
     }
     
     function validateCommunityData(data) {
-      return data.keys().hasAll(['name', 'description', 'creatorId', 'createdAt', 'visibility']) &&
-             data.name is string &&
-             data.description is string &&
-             data.creatorId is string &&
-             data.visibility in ['public', 'private'] &&
-             data.name.size() >= 3 &&
-             data.name.size() <= 100 &&
-             data.description.size() <= 500;
+      return data.keys().hasAll(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'imageUrl', 'memberCount']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.description is string && data.description.size() > 0 &&
+             data.creatorId == request.auth.uid &&
+             data.visibility == 'public' &&
+             data.imageUrl is string &&
+             data.memberCount == 1;
     }
     
     function validateCommunityUpdate(newData, oldData) {
       return newData.creatorId == oldData.creatorId &&
-             newData.createdAt == oldData.createdAt;
+             newData.createdAt == oldData.createdAt &&
+             newData.imageUrl == oldData.imageUrl;
     }
     
     function validateMembershipData(data) {
@@ -217,16 +217,14 @@ service cloud.firestore {
     }
     
     match /communities/{communityId} {
-      allow read: if request.auth != null && 
-                      (resource.data.visibility == 'public' || isCommunityMember(communityId, request.auth.uid));
+      allow read: if request.auth != null;
       
       allow create: if request.auth != null && 
                         request.auth.uid == request.resource.data.creatorId &&
                         validateCommunityData(request.resource.data);
       
       allow update: if request.auth != null && 
-                        (request.auth.uid == resource.data.creatorId ||
-                         isCommunityAdmin(communityId, request.auth.uid)) &&
+                        request.auth.uid == resource.data.creatorId &&
                         validateCommunityUpdate(request.resource.data, resource.data);
       
       allow delete: if request.auth != null && 

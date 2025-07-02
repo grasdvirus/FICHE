@@ -2,17 +2,26 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown } from 'lucide-react';
+import Image from 'next/image';
+import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown, Loader2 } from 'lucide-react';
 import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
+import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
+import { generateCommunityImage } from '@/ai/flows/generate-community-image';
 import { useToast } from '@/hooks/use-toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser, GoogleAuthProvider } from 'firebase/auth';
-import { auth, googleProvider, db, rtdb } from '@/lib/firebase';
+import { auth, googleProvider, db, rtdb, storage } from '@/lib/firebase';
 import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, getDoc, updateDoc, arrayUnion, writeBatch, increment, deleteDoc } from 'firebase/firestore';
 import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
+import { ref as storageRef, uploadString, getDownloadURL } from 'firebase/storage';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -126,6 +135,15 @@ const FicheApp = () => {
   const [isGeneratingUserTextAudio, setIsGeneratingUserTextAudio] = useState(false);
   const [aiExplanationAudio, setAiExplanationAudio] = useState<string | null>(null);
   const [isGeneratingAiAudio, setIsGeneratingAiAudio] = useState(false);
+  
+  // Community states
+  const [communities, setCommunities] = useState<any[]>([]);
+  const [isLoadingCommunities, setIsLoadingCommunities] = useState(true);
+  const [showCreateCommunityModal, setShowCreateCommunityModal] = useState(false);
+  const [newCommunityName, setNewCommunityName] = useState('');
+  const [newCommunityDescription, setNewCommunityDescription] = useState('');
+  const [isCreatingCommunity, setIsCreatingCommunity] = useState(false);
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
 
 
   // Fetch user data and cache it
@@ -288,7 +306,27 @@ const FicheApp = () => {
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [toast]);
+  
+    // Listen for communities
+    useEffect(() => {
+      setIsLoadingCommunities(true);
+      const communitiesRef = collection(db, "communities");
+      const q = query(communitiesRef, where("visibility", "==", "public"), orderBy("createdAt", "desc"));
+      
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+          const comms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setCommunities(comms);
+          setIsLoadingCommunities(false);
+      }, (error) => {
+          console.error("Error fetching communities:", error);
+          setIsLoadingCommunities(false);
+          toast({ title: "Erreur", description: "Impossible de charger les communautés." });
+      });
+
+      return () => unsubscribe();
+  }, [toast]);
+
 
   const handleAuthError = (error: any) => {
     console.error("Erreur d'authentification:", error.code, error.message);
@@ -410,6 +448,13 @@ const FicheApp = () => {
     toast({ title: 'Déconnexion', description: 'Vous avez été déconnecté.' });
   };
 
+  const handleResetAI = () => {
+    setUserText('');
+    setAnalysisResult(null);
+    setAiExplanationAudio(null);
+    setUserTextAudio(null);
+    toast({ title: 'Réinitialisé', description: 'Vous pouvez démarrer une nouvelle analyse.' });
+  };
 
   const handleAnalyze = async () => {
     if (!userText.trim()) { return; }
@@ -592,6 +637,62 @@ const handleDeleteConversation = async (conversationId: string | null) => {
         description: "Votre message n'a pas pu être envoyé.",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleGenerateDescription = async () => {
+    if (!newCommunityName.trim()) {
+        toast({ title: 'Nom manquant', description: 'Veuillez d\'abord nommer votre communauté.', variant: 'destructive'});
+        return;
+    }
+    setIsGeneratingDescription(true);
+    try {
+        const result = await generateCommunityDescription({ prompt: newCommunityName });
+        setNewCommunityDescription(result.description);
+    } catch (error) {
+        console.error('Error generating description:', error);
+        toast({ title: 'Erreur', description: 'Impossible de générer la description.', variant: 'destructive'});
+    } finally {
+        setIsGeneratingDescription(false);
+    }
+  };
+  
+  const handleCreateCommunity = async () => {
+    if (!user || !newCommunityName.trim() || !newCommunityDescription.trim()) {
+        toast({ title: "Champs requis", description: "Le nom et la description sont obligatoires.", variant: "destructive" });
+        return;
+    }
+    setIsCreatingCommunity(true);
+    try {
+        // 1. Generate image
+        const imageResult = await generateCommunityImage({ prompt: newCommunityName });
+        
+        // 2. Upload image to storage
+        const communityImageRef = storageRef(storage, `communities/${newCommunityName.replace(/\s+/g, '-')}-${Date.now()}.png`);
+        await uploadString(communityImageRef, imageResult.imageUrl, 'data_url');
+        const downloadURL = await getDownloadURL(communityImageRef);
+
+        // 3. Save community to Firestore
+        await addDoc(collection(db, "communities"), {
+            name: newCommunityName,
+            description: newCommunityDescription,
+            creatorId: user.uid,
+            imageUrl: downloadURL,
+            visibility: 'public', // Default to public
+            createdAt: serverTimestamp(),
+            memberCount: 1,
+        });
+        
+        toast({ title: "Communauté créée !", description: "Votre communauté est maintenant en ligne." });
+        setShowCreateCommunityModal(false);
+        setNewCommunityName('');
+        setNewCommunityDescription('');
+
+    } catch (error) {
+        console.error("Error creating community:", error);
+        toast({ title: "Erreur", description: "Impossible de créer la communauté.", variant: "destructive" });
+    } finally {
+        setIsCreatingCommunity(false);
     }
   };
   
@@ -800,8 +901,8 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                   </div>
                   <div className="flex items-center space-x-2">
                     <button
-                      onClick={() => { setAnalysisResult(null); setAiExplanationAudio(null); }}
-                      disabled={isAnalyzing || !analysisResult}
+                      onClick={handleResetAI}
+                      disabled={isAnalyzing}
                       className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label="Réinitialiser l'analyse"
                     >
@@ -885,29 +986,6 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                 </Accordion>
               </div>
             )}
-
-            {/* Quick Actions */}
-            <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4">
-              <h3 className="font-semibold text-gray-900 mb-3 text-sm">Actions Rapides</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <button className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200/50 active:bg-blue-100 transition-all duration-300">
-                  <Mail className="h-6 w-6 text-blue-500 mx-auto mb-2" />
-                  <span className="text-xs text-gray-700 block">E-mail</span>
-                </button>
-                <button className="p-4 bg-gradient-to-r from-green-50 to-blue-50 rounded-xl border border-green-200/50 active:bg-green-100 transition-all duration-300">
-                  <FileText className="h-6 w-6 text-green-500 mx-auto mb-2" />
-                  <span className="text-xs text-gray-700 block">Document</span>
-                </button>
-                <button className="p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200/50 active:bg-purple-100 transition-all duration-300">
-                  <Users className="h-6 w-6 text-purple-500 mx-auto mb-2" />
-                  <span className="text-xs text-gray-700 block">Communauté</span>
-                </button>
-                <button className="p-4 bg-gradient-to-r from-orange-50 to-red-50 rounded-xl border border-orange-200/50 active:bg-orange-100 transition-all duration-300">
-                  <Send className="h-6 w-6 text-orange-500 mx-auto mb-2" />
-                  <span className="text-xs text-gray-700 block">Partager</span>
-                </button>
-              </div>
-            </div>
           </div>
         )}
 
@@ -990,25 +1068,59 @@ const handleDeleteConversation = async (conversationId: string | null) => {
         )}
 
         {activeTab === 'community' && (
-          <div className="h-full overflow-y-auto px-4 py-6">
-            <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
-              <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Users className="h-8 w-8 text-white" />
+           <div className="h-full flex flex-col">
+            {!user ? (
+               <div className="flex flex-col items-center justify-center h-full px-4">
+                 <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
+                   <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                     <Users className="h-8 w-8 text-white" />
+                   </div>
+                   <h2 className="text-xl font-bold text-gray-900 mb-2">Communautés</h2>
+                   <p className="text-sm text-gray-600 mb-6">Connectez-vous pour rejoindre ou créer des communautés.</p>
+                   <Button onClick={() => setShowLogin(true)} className="bg-gradient-to-r from-purple-500 to-indigo-600">
+                     Se connecter
+                   </Button>
+                 </div>
+               </div>
+            ) : (
+              <div className="h-full overflow-y-auto p-4 md:p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-bold text-gray-900">Communautés</h2>
+                  <Button onClick={() => setShowCreateCommunityModal(true)} className="bg-gradient-to-r from-purple-500 to-indigo-600">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Créer
+                  </Button>
+                </div>
+                {isLoadingCommunities ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="flex flex-col items-center space-y-2">
+                        <Skeleton className="w-24 h-24 rounded-full" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                    ))}
+                  </div>
+                ) : communities.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                    {communities.map(community => (
+                      <div key={community.id} className="flex flex-col items-center text-center space-y-2 cursor-pointer group">
+                        <div className="relative w-24 h-24">
+                          <Image src={community.imageUrl || 'https://placehold.co/100x100.png'} alt={community.name} width={100} height={100} className="rounded-full object-cover border-4 border-white shadow-lg group-hover:scale-105 transition-transform" data-ai-hint="community logo" />
+                        </div>
+                        <span className="font-semibold text-sm text-gray-800">{community.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-16 text-gray-500">
+                    <Users className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                    <h3 className="text-lg font-medium">Aucune communauté trouvée</h3>
+                    <p className="text-sm">Soyez le premier à en créer une !</p>
+                  </div>
+                )}
               </div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">Communautés</h2>
-              <p className="text-sm text-gray-600 mb-6">Rejoignez ou créez des communautés</p>
-              <div className="grid grid-cols-2 gap-3">
-                <button className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-center space-x-2">
-                  <Plus className="h-4 w-4" />
-                  <span>Créer</span>
-                </button>
-                <button className="border-2 border-purple-200 text-purple-600 px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-center space-x-2">
-                  <Search className="h-4 w-4" />
-                  <span>Explorer</span>
-                </button>
-              </div>
-            </div>
-          </div>
+            )}
+           </div>
         )}
 
         {activeTab === 'ia' && (
@@ -1187,6 +1299,71 @@ const handleDeleteConversation = async (conversationId: string | null) => {
             </AlertDialogContent>
         </AlertDialog>
       )}
+
+      {/* Create Community Modal */}
+      <Dialog open={showCreateCommunityModal} onOpenChange={setShowCreateCommunityModal}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Créer une nouvelle communauté</DialogTitle>
+            <DialogDescription>
+              Donnez vie à votre communauté. Choisissez un nom et laissez l'IA vous aider.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="name" className="text-right text-sm font-medium">Nom</label>
+              <Input
+                id="name"
+                value={newCommunityName}
+                onChange={(e) => setNewCommunityName(e.target.value)}
+                className="col-span-3"
+                placeholder="Ex: Passionnés de jardinage"
+                disabled={isCreatingCommunity}
+              />
+            </div>
+            <div className="grid grid-cols-4 items-start gap-4">
+              <label htmlFor="description" className="text-right text-sm font-medium pt-2">Description</label>
+              <div className="col-span-3">
+                <Textarea
+                  id="description"
+                  value={newCommunityDescription}
+                  onChange={(e) => setNewCommunityDescription(e.target.value)}
+                  placeholder="Décrivez le but de votre communauté..."
+                  disabled={isCreatingCommunity || isGeneratingDescription}
+                  className="min-h-[100px]"
+                />
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="mt-2"
+                  onClick={handleGenerateDescription}
+                  disabled={isCreatingCommunity || isGeneratingDescription}
+                >
+                   {isGeneratingDescription ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                   ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                   )}
+                   Générer avec l'IA
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+             <DialogClose asChild>
+                <Button type="button" variant="outline" disabled={isCreatingCommunity}>
+                    Annuler
+                </Button>
+             </DialogClose>
+            <Button type="submit" onClick={handleCreateCommunity} disabled={isCreatingCommunity}>
+              {isCreatingCommunity ? (
+                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Créer la communauté
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
