@@ -275,7 +275,7 @@ const FicheApp = () => {
   }, []);
 
   const handleAuthError = (error: any) => {
-    console.error("Erreur d'authentification:", error.code);
+    console.error("Erreur d'authentification:", error.code, error.message);
     let title = "Erreur d'authentification";
     let description = "Une erreur inconnue est survenue. Veuillez réessayer.";
 
@@ -295,9 +295,10 @@ const FicheApp = () => {
             description = "Le mot de passe doit contenir au moins 6 caractères.";
             break;
         case 'auth/popup-closed-by-user':
-            description = "La fenêtre de connexion a été fermée. Si le problème persiste, vérifiez les paramètres de votre projet Firebase.";
+            description = "La fenêtre de connexion a été fermée. Si le problème persiste, assurez-vous que ce domaine est autorisé dans les paramètres d'authentification de votre projet Firebase.";
             break;
         default:
+            description = error.message || description;
             break;
     }
     toast({ title, description, variant: 'destructive' });
