@@ -120,6 +120,7 @@ const FicheApp = () => {
 
   // Fetch user data and cache it
   const fetchUsersData = async (userIds: string[]) => {
+    if (!userIds || userIds.length === 0) return;
     const newUsersToFetch = userIds.filter(id => !usersCache[id]);
     if (newUsersToFetch.length === 0) return;
 
@@ -214,7 +215,7 @@ const FicheApp = () => {
     }
   
     const markAsRead = async () => {
-      if (!selectedConversation?.id) return;
+      if (!selectedConversation?.id || !user?.uid) return;
   
       const conversationRef = doc(db, 'conversations', selectedConversation.id);
       const batch = writeBatch(db);
@@ -244,7 +245,7 @@ const FicheApp = () => {
     };
     
     markAsRead();
-  }, [selectedConversation, messages, user]);
+  }, [selectedConversation?.id, messages, user?.uid]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -294,7 +295,7 @@ const FicheApp = () => {
             description = "Le mot de passe doit contenir au moins 6 caractères.";
             break;
         case 'auth/popup-closed-by-user':
-            description = "La fenêtre de connexion a été fermée avant la fin de l'opération.";
+            description = "La fenêtre de connexion a été fermée. Si le problème persiste, vérifiez les paramètres de votre projet Firebase.";
             break;
         default:
             break;
@@ -370,7 +371,7 @@ const FicheApp = () => {
   
   const handleStartConversation = async (otherUser: any) => {
     if (!user) return;
-
+  
     const conversationId = getConversationId(user.uid, otherUser.uid);
     const conversationRef = doc(db, "conversations", conversationId);
     
@@ -390,10 +391,12 @@ const FicheApp = () => {
                 },
             };
             await setDoc(conversationRef, convoData);
+            // After creating, we pass the new data to be set as selected conversation
+            setSelectedConversation({ id: conversationId, ...convoData });
         } else {
             convoData = conversationSnap.data();
+            setSelectedConversation({ id: conversationId, ...convoData });
         }
-        setSelectedConversation({ id: conversationId, ...convoData });
         setShowNewMessageModal(false);
         setSearchUserQuery('');
     } catch (error: any) {
