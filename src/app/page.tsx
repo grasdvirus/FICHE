@@ -16,6 +16,76 @@ const getConversationId = (uid1: string, uid2: string) => {
   return uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
 };
 
+const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNewMessage, onSendMessage, onBack }: any) => {
+  if (!conversation || !user) return null;
+
+  const otherParticipantId = conversation.participantIds.find((id: string) => id !== user.uid);
+  const otherUser = usersCache[otherParticipantId];
+  const messagesEndRef = useRef<null | HTMLDivElement>(null);
+  
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages]);
+  
+  return (
+      <div className="h-full flex flex-col">
+          {/* Header */}
+          <div className="flex items-center p-4 border-b border-blue-200/50 backdrop-blur-lg bg-white/90">
+              <button onClick={onBack} className="mr-4 p-2 rounded-full hover:bg-gray-200">
+                  <ArrowLeft className="h-5 w-5 text-gray-700" />
+              </button>
+              <div className="w-10 h-10 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center mr-3">
+                 <span className="text-white font-semibold text-lg">{otherUser?.displayName?.charAt(0).toUpperCase()}</span>
+              </div>
+              <h2 className="font-semibold text-gray-900">{otherUser?.displayName}</h2>
+          </div>
+
+          {/* Messages Area */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {messages.map((msg: any) => (
+                  <div key={msg.id} className={`flex ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-blue-500 text-white rounded-br-none' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
+                          <p className="text-sm">{msg.content}</p>
+                          {msg.timestamp?.toDate && (
+                              <p className={`text-xs mt-1 ${msg.senderId === user.uid ? 'text-blue-100' : 'text-gray-500'} text-right`}>
+                                  {new Date(msg.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                          )}
+                      </div>
+                  </div>
+              ))}
+               <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input Area */}
+          <div className="p-4 border-t border-blue-200/50 backdrop-blur-lg bg-white/90">
+              <div className="flex items-center space-x-2">
+                  <input 
+                      type="text"
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && onSendMessage()}
+                      placeholder="Écrivez un message..."
+                      className="flex-1 w-full p-3 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
+                  />
+                  <button 
+                      onClick={onSendMessage}
+                      className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white disabled:opacity-50"
+                      disabled={!newMessage.trim()}
+                  >
+                      <Send className="h-5 w-5" />
+                  </button>
+              </div>
+          </div>
+      </div>
+  );
+};
+
+
 const FicheApp = () => {
   const [activeTab, setActiveTab] = useState('editor');
   const [userText, setUserText] = useState('');
@@ -392,76 +462,6 @@ const FicheApp = () => {
       );
   }
 
-  const renderChatView = () => {
-    if (!selectedConversation || !user) return null;
-
-    const otherParticipantId = selectedConversation.participantIds.find((id: string) => id !== user.uid);
-    const otherUser = usersCache[otherParticipantId];
-    const messagesEndRef = useRef<null | HTMLDivElement>(null);
-    
-    const scrollToBottom = () => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-    }
-  
-    useEffect(() => {
-      scrollToBottom()
-    }, [messages]);
-    
-    return (
-        <div className="h-full flex flex-col">
-            {/* Header */}
-            <div className="flex items-center p-4 border-b border-blue-200/50 backdrop-blur-lg bg-white/90">
-                <button onClick={() => setSelectedConversation(null)} className="mr-4 p-2 rounded-full hover:bg-gray-200">
-                    <ArrowLeft className="h-5 w-5 text-gray-700" />
-                </button>
-                <div className="w-10 h-10 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center mr-3">
-                   <span className="text-white font-semibold text-lg">{otherUser?.displayName?.charAt(0).toUpperCase()}</span>
-                </div>
-                <h2 className="font-semibold text-gray-900">{otherUser?.displayName}</h2>
-            </div>
-
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {messages.map(msg => (
-                    <div key={msg.id} className={`flex ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-blue-500 text-white rounded-br-none' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
-                            <p className="text-sm">{msg.content}</p>
-                            {msg.timestamp?.toDate && (
-                                <p className={`text-xs mt-1 ${msg.senderId === user.uid ? 'text-blue-100' : 'text-gray-500'} text-right`}>
-                                    {new Date(msg.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </p>
-                            )}
-                        </div>
-                    </div>
-                ))}
-                 <div ref={messagesEndRef} />
-            </div>
-
-            {/* Input Area */}
-            <div className="p-4 border-t border-blue-200/50 backdrop-blur-lg bg-white/90">
-                <div className="flex items-center space-x-2">
-                    <input 
-                        type="text"
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                        placeholder="Écrivez un message..."
-                        className="flex-1 w-full p-3 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
-                    />
-                    <button 
-                        onClick={handleSendMessage}
-                        className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white disabled:opacity-50"
-                        disabled={!newMessage.trim()}
-                    >
-                        <Send className="h-5 w-5" />
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-  };
-  
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative overflow-hidden">
       {/* Background Effects */}
@@ -657,7 +657,16 @@ const FicheApp = () => {
                 </div>
               </div>
             ) : selectedConversation ? (
-                renderChatView()
+                <ChatView
+                    user={user}
+                    conversation={selectedConversation}
+                    usersCache={usersCache}
+                    messages={messages}
+                    newMessage={newMessage}
+                    setNewMessage={setNewMessage}
+                    onSendMessage={handleSendMessage}
+                    onBack={() => setSelectedConversation(null)}
+                />
             ) : (
               <div className="px-4 py-6 space-y-4">
                 {/* Header avec recherche */}
