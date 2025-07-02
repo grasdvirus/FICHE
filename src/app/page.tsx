@@ -1,28 +1,101 @@
 
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User } from 'lucide-react';
 import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { useToast } from '@/hooks/use-toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser, GoogleAuthProvider } from 'firebase/auth';
+import { auth, googleProvider } from '@/lib/firebase';
+
 
 const FicheApp = () => {
   const [activeTab, setActiveTab] = useState('editor');
   const [userText, setUserText] = useState('');
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   
   // States for AI analysis
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalyzeTextOutput | null>(null);
+  
+  // Auth states
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const { toast } = useToast();
 
-  const handleLogin = () => {
-    // This will be properly implemented later
-    setIsLoggedIn(true);
-    setShowLogin(false);
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        setShowLogin(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleAuthError = (error: any) => {
+    console.error("Erreur d'authentification:", error.code);
+    let title = "Erreur d'authentification";
+    let description = "Une erreur inconnue est survenue. Veuillez réessayer.";
+
+    switch (error.code) {
+        case 'auth/invalid-email':
+            description = "L'adresse e-mail n'est pas valide.";
+            break;
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential':
+            description = "L'adresse e-mail ou le mot de passe est incorrect.";
+            break;
+        case 'auth/email-already-in-use':
+            description = "Cette adresse e-mail est déjà utilisée par un autre compte.";
+            break;
+        case 'auth/weak-password':
+            description = "Le mot de passe doit contenir au moins 6 caractères.";
+            break;
+        case 'auth/popup-closed-by-user':
+            description = "La fenêtre de connexion a été fermée avant la fin de l'opération.";
+            break;
+        default:
+            break;
+    }
+    toast({ title, description, variant: 'destructive' });
   };
+
+  const handleEmailSignUp = async () => {
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+      toast({ title: 'Compte créé', description: 'Votre compte a été créé avec succès.' });
+    } catch (error) {
+      handleAuthError(error);
+    }
+  };
+  
+  const handleEmailSignIn = async () => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      toast({ title: 'Connexion réussie', description: 'Vous êtes maintenant connecté.' });
+    } catch (error) {
+      handleAuthError(error);
+    }
+  };
+  
+  const handleGoogleSignIn = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+      toast({ title: 'Connexion réussie', description: 'Vous êtes maintenant connecté avec Google.' });
+    } catch (error) {
+      handleAuthError(error);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOut(auth);
+    toast({ title: 'Déconnexion', description: 'Vous avez été déconnecté.' });
+  };
+
 
   const handleAnalyze = async () => {
     if (!userText.trim()) {
@@ -74,9 +147,14 @@ const FicheApp = () => {
 
             {/* User Avatar */}
             <div className="flex items-center space-x-3">
-              {isLoggedIn ? (
-                <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center">
-                  <User className="h-4 w-4 text-white" />
+              {user ? (
+                <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center">
+                        <User className="h-4 w-4 text-white" />
+                    </div>
+                    <button onClick={handleSignOut} className="text-sm text-gray-600 hover:text-blue-600 hidden sm:block">
+                        Déconnexion
+                    </button>
                 </div>
               ) : (
                 <button 
@@ -224,7 +302,7 @@ const FicheApp = () => {
 
         {activeTab === 'mail' && (
           <div className="px-4 py-6 space-y-4">
-            {!isLoggedIn ? (
+            {!user ? (
               <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
                 <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
                   <Mail className="h-8 w-8 text-white" />
@@ -503,31 +581,55 @@ const FicheApp = () => {
                 <input 
                   type="email" 
                   placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="w-full p-4 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
                 />
                 <input 
                   type="password" 
                   placeholder="Mot de passe"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   className="w-full p-4 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
                 />
               </div>
               <div className="space-y-3">
                 <button 
-                  onClick={handleLogin}
+                  onClick={handleEmailSignIn}
                   className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white py-4 rounded-xl font-medium"
                 >
                   Se connecter
                 </button>
                 <button 
+                  onClick={handleEmailSignUp}
+                  className="w-full bg-gradient-to-r from-teal-500 to-cyan-600 text-white py-4 rounded-xl font-medium"
+                >
+                  Créer un compte
+                </button>
+
+                <div className="relative flex py-2 items-center">
+                    <div className="flex-grow border-t border-gray-300"></div>
+                    <span className="flex-shrink mx-4 text-gray-400 text-xs">OU</span>
+                    <div className="flex-grow border-t border-gray-300"></div>
+                </div>
+
+                <button 
+                  onClick={handleGoogleSignIn}
+                  className="w-full bg-white border-2 border-gray-200 text-gray-700 py-3 rounded-xl font-medium flex items-center justify-center space-x-2"
+                >
+                    <svg className="w-5 h-5" viewBox="0 0 48 48">
+                        <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571l6.19,5.238C42.021,35.596,44,30.138,44,24C44,22.659,43.862,21.35,43.611,20.083z"></path>
+                    </svg>
+                    <span>Se connecter avec Google</span>
+                </button>
+
+                <button 
                   onClick={() => setShowLogin(false)}
-                  className="w-full border-2 border-gray-200 text-gray-600 py-4 rounded-xl font-medium"
+                  className="w-full border-2 border-gray-200 text-gray-600 py-3 rounded-xl font-medium mt-4"
                 >
                   Annuler
                 </button>
               </div>
-              <p className="text-xs text-gray-500">
-                Pas de compte ? <span className="text-blue-600 font-medium">Créer un compte</span>
-              </p>
             </div>
           </div>
         </div>
@@ -537,3 +639,5 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
+
+    
