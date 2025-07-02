@@ -6,8 +6,9 @@ import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { useToast } from '@/hooks/use-toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser, GoogleAuthProvider } from 'firebase/auth';
-import { auth, googleProvider, db } from '@/lib/firebase';
-import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, limit, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
+import { auth, googleProvider, db, rtdb } from '@/lib/firebase';
+import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, getDoc, updateDoc, arrayUnion, writeBatch, increment } from 'firebase/firestore';
+import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -46,18 +47,19 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
 
           {/* Messages Area */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.map((msg: any) => (
-                  <div key={msg.id} className={`flex ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-blue-500 text-white rounded-br-none' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
-                          <p className="text-sm">{msg.content}</p>
-                          {msg.timestamp?.toDate && (
-                              <p className={`text-xs mt-1 ${msg.senderId === user.uid ? 'text-blue-100' : 'text-gray-500'} text-right`}>
-                                  {new Date(msg.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </p>
-                          )}
-                      </div>
-                  </div>
-              ))}
+              {messages.map((msg: any) => {
+                  const isRead = msg.readBy?.includes(otherParticipantId);
+                  return (
+                    <div key={msg.id} className={`flex items-end gap-2 ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-blue-500 text-white rounded-br-none' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
+                            <p className="text-sm">{msg.content}</p>
+                        </div>
+                        {msg.senderId === user.uid && (
+                            isRead ? <CheckCheck className="h-4 w-4 text-blue-500" /> : <Check className="h-4 w-4 text-gray-400" />
+                        )}
+                    </div>
+                  )
+              })}
                <div ref={messagesEndRef} />
           </div>
 
@@ -109,6 +111,7 @@ const FicheApp = () => {
   const [showNewMessageModal, setShowNewMessageModal] = useState(false);
   const [usersToMessage, setUsersToMessage] = useState<any[]>([]);
   const [usersCache, setUsersCache] = useState<{[key: string]: any}>({});
+  const [presenceCache, setPresenceCache] = useState<{[key: string]: any}>({});
 
 
   // Fetch user data and cache it
@@ -127,14 +130,36 @@ const FicheApp = () => {
       setUsersCache(prev => ({...prev, ...fetchedUsers}));
     } catch (error) {
         console.error("Erreur lors de la récupération des utilisateurs:", error);
-        toast({
-            title: "Erreur de chargement",
-            description: "Impossible de charger les informations des utilisateurs.",
-            variant: "destructive",
-        });
     }
   };
 
+  // Presence System
+  useEffect(() => {
+    if (!user) return;
+
+    const userStatusRef = rtdbRef(rtdb, `/status/${user.uid}`);
+    const presenceInfo = {
+        state: 'online',
+        last_changed: rtdbServerTimestamp(),
+    };
+    
+    onDisconnect(userStatusRef).set({ state: 'offline', last_changed: rtdbServerTimestamp() })
+        .then(() => {
+            rtdbSet(userStatusRef, presenceInfo);
+        });
+
+    const statusRef = rtdbRef(rtdb, '/status');
+    const unsubscribe = onValue(statusRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            setPresenceCache(data);
+        }
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Listen for conversations
   useEffect(() => {
     if (!user) {
       setConversations([]);
@@ -153,26 +178,12 @@ const FicheApp = () => {
       fetchUsersData(uniqueParticipantIds);
     }, (error: any) => {
       console.error("Erreur d'écoute des conversations: ", error);
-      if (error.code === 'failed-precondition') {
-          toast({
-              title: "Index Firestore manquant",
-              description: "La base de données nécessite un index pour cette requête. Veuillez cliquer sur le lien dans la console d'erreurs de votre navigateur pour le créer.",
-              variant: "destructive",
-              duration: 15000,
-          });
-      } else if (error.code === 'permission-denied') {
-        toast({
-            title: "Erreur de permission (Conversations)",
-            description: "Impossible de charger vos conversations. Assurez-vous que vos règles de sécurité Firestore autorisent la lecture de la collection 'conversations' lorsque vous êtes authentifié.",
-            variant: "destructive",
-            duration: 15000,
-        });
-      }
     });
 
     return () => unsubscribe();
   }, [user]);
 
+  // Listen for messages in the selected conversation
   useEffect(() => {
     if (!selectedConversation?.id) {
         setMessages([]);
@@ -187,19 +198,45 @@ const FicheApp = () => {
         setMessages(msgs);
     }, (error: any) => {
         console.error("Erreur d'écoute des messages: ", error);
-        if (error.code === 'permission-denied') {
-          toast({
-              title: "Erreur de permission (Messages)",
-              description: "Impossible de charger les messages. Vérifiez que vos règles autorisent la lecture de la sous-collection 'messages' pour les participants à la conversation.",
-              variant: "destructive",
-              duration: 15000,
-          });
-        }
     });
 
     return () => unsubscribe();
   }, [selectedConversation?.id]);
+  
+  // Mark messages as read
+  useEffect(() => {
+    if (!selectedConversation || !user || messages.length === 0) return;
 
+    const markAsRead = async () => {
+        const conversationRef = doc(db, 'conversations', selectedConversation.id);
+        const batch = writeBatch(db);
+        let unreadCount = 0;
+
+        messages.forEach(msg => {
+            if (msg.senderId !== user.uid && !msg.readBy?.includes(user.uid)) {
+                const msgRef = doc(db, 'conversations', selectedConversation.id, 'messages', msg.id);
+                batch.update(msgRef, {
+                    readBy: arrayUnion(user.uid)
+                });
+                unreadCount++;
+            }
+        });
+        
+        if (unreadCount > 0) {
+            batch.update(conversationRef, {
+                [`unreadCounts.${user.uid}`]: 0
+            });
+
+            try {
+                await batch.commit();
+            } catch (error) {
+                console.error("Erreur lors de la mise à jour des messages comme lus:", error);
+            }
+        }
+    };
+    
+    markAsRead();
+  }, [selectedConversation, messages, user]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -221,11 +258,6 @@ const FicheApp = () => {
           }
         } catch(error: any) {
             console.error("Erreur de sauvegarde de l'utilisateur:", error);
-             toast({
-                title: "Erreur de sauvegarde",
-                description: `Impossible d'enregistrer les informations utilisateur. Erreur: ${error.message}`,
-                variant: "destructive",
-            });
         }
       }
     });
@@ -289,6 +321,10 @@ const FicheApp = () => {
   };
 
   const handleSignOut = async () => {
+    if(user) {
+       const userStatusRef = rtdbRef(rtdb, `/status/${user.uid}`);
+       await rtdbSet(userStatusRef, { state: 'offline', last_changed: rtdbServerTimestamp() });
+    }
     await signOut(auth);
     setSelectedConversation(null);
     toast({ title: 'Déconnexion', description: 'Vous avez été déconnecté.' });
@@ -296,14 +332,7 @@ const FicheApp = () => {
 
 
   const handleAnalyze = async () => {
-    if (!userText.trim()) {
-        toast({
-            title: 'Le champ de texte est vide',
-            description: 'Veuillez écrire quelque chose à analyser.',
-            variant: 'destructive',
-        });
-        return;
-    }
+    if (!userText.trim()) { return; }
     setIsAnalyzing(true);
     setAnalysisResult(null);
     try {
@@ -311,11 +340,6 @@ const FicheApp = () => {
         setAnalysisResult(result);
     } catch (error) {
         console.error("Erreur lors de l'analyse du texte:", error);
-        toast({
-            title: "Erreur d'analyse",
-            description: "Une erreur s'est produite lors de l'analyse de votre texte. Veuillez réessayer.",
-            variant: 'destructive',
-        });
     } finally {
         setIsAnalyzing(false);
     }
@@ -332,20 +356,6 @@ const FicheApp = () => {
         setShowNewMessageModal(true);
     } catch(error: any) {
         console.error("Impossible de lister les utilisateurs:", error);
-        if (error.code === 'permission-denied') {
-            toast({
-                title: "Erreur de permission (Utilisateurs)",
-                description: "Impossible de charger la liste des utilisateurs. Vérifiez que vos règles autorisent la lecture de la collection 'users'.",
-                variant: "destructive",
-                duration: 15000,
-            });
-        } else {
-             toast({
-                title: "Erreur",
-                description: "Impossible de charger la liste des utilisateurs.",
-                variant: "destructive",
-            });
-        }
     }
   };
   
@@ -358,7 +368,6 @@ const FicheApp = () => {
     try {
       const conversationSnap = await getDoc(conversationRef);
       
-      let conversationData;
       if (!conversationSnap.exists()) {
         const newConvoData = {
           participants: [user.uid, otherUser.uid],
@@ -367,27 +376,19 @@ const FicheApp = () => {
           updatedAt: serverTimestamp(),
           type: 'direct',
           lastMessage: null,
+          unreadCounts: {
+            [user.uid]: 0,
+            [otherUser.uid]: 0,
+          },
         };
         await setDoc(conversationRef, newConvoData);
-        conversationData = { id: conversationId, ...newConvoData };
+        setSelectedConversation({ id: conversationId, ...newConvoData });
       } else {
-        conversationData = { id: conversationSnap.id, ...conversationSnap.data() };
+        setSelectedConversation({ id: conversationSnap.id, ...conversationSnap.data() });
       }
-      
-      setSelectedConversation(conversationData);
       setShowNewMessageModal(false);
     } catch (error: any) {
       console.error("Erreur au démarrage de la conversation:", error);
-      let description = "Impossible de démarrer la conversation. Veuillez réessayer.";
-      if (error.code === 'permission-denied') {
-        description = "Permission refusée. Assurez-vous que les règles de sécurité Firestore sont correctement configurées pour autoriser cette action.";
-      }
-      toast({
-        title: "Erreur de Conversation",
-        description: description,
-        variant: "destructive",
-        duration: 10000,
-      });
     }
   };
 
@@ -396,12 +397,16 @@ const FicheApp = () => {
 
     const conversationRef = doc(db, "conversations", selectedConversation.id);
     const messagesRef = collection(conversationRef, "messages");
+    const otherParticipantId = selectedConversation.participantIds.find((id: string) => id !== user.uid);
+    
+    const batch = writeBatch(db);
 
     try {
       const messageContent = newMessage;
       setNewMessage('');
 
-      await addDoc(messagesRef, {
+      const newMessageRef = doc(messagesRef);
+      batch.set(newMessageRef, {
           content: messageContent,
           senderId: user.uid,
           timestamp: serverTimestamp(),
@@ -409,14 +414,17 @@ const FicheApp = () => {
           readBy: [user.uid]
       });
 
-      await updateDoc(conversationRef, {
+      batch.update(conversationRef, {
           lastMessage: {
               content: messageContent,
               senderId: user.uid,
               timestamp: serverTimestamp()
           },
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          [`unreadCounts.${otherParticipantId}`]: increment(1)
       });
+      
+      await batch.commit();
 
     } catch(error) {
       console.error("Erreur d'envoi du message:", error);
@@ -434,8 +442,10 @@ const FicheApp = () => {
       const otherParticipantId = conversation.participantIds.find((id: string) => id !== user.uid);
       const otherUser = usersCache[otherParticipantId];
       const lastMessage = conversation.lastMessage;
+      const isOnline = presenceCache[otherParticipantId]?.state === 'online';
+      const unreadCount = conversation.unreadCounts?.[user.uid] || 0;
 
-      if (!otherUser) return null; // Or a loading skeleton
+      if (!otherUser) return null;
 
       return (
         <div key={conversation.id} onClick={() => setSelectedConversation(conversation)} className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300 cursor-pointer">
@@ -448,6 +458,7 @@ const FicheApp = () => {
                   <span className="text-white font-semibold text-sm">{otherUser.displayName?.charAt(0).toUpperCase()}</span>
                 )}
               </div>
+              {isOnline && <div className="absolute -bottom-0 -right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1">
@@ -458,10 +469,10 @@ const FicheApp = () => {
                    </span>
                 )}
               </div>
-              <p className="text-xs text-gray-600 line-clamp-2 mb-2">
+              <p className="text-xs text-gray-600 line-clamp-1 mb-2">
                 {lastMessage ? (
                     <>
-                     {lastMessage.senderId === user.uid && "Vous: "}
+                     {lastMessage.senderId === user.uid && <span className="mr-1">Vous:</span>}
                      {lastMessage.content}
                     </>
                 ) : (
@@ -469,7 +480,12 @@ const FicheApp = () => {
                 )}
               </p>
                <div className="flex items-center justify-end">
-                {lastMessage?.senderId === user.uid && <CheckCheck className="h-4 w-4 text-blue-500" />}
+                {lastMessage?.senderId === user.uid && <Check className="h-4 w-4 text-gray-400" />}
+                {unreadCount > 0 && (
+                  <div className="ml-auto w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-xs font-medium">{unreadCount}</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -683,7 +699,7 @@ const FicheApp = () => {
                     onBack={() => setSelectedConversation(null)}
                 />
             ) : (
-              <div className="h-full overflow-y-auto px-4 py-6 space-y-4 pb-24">
+              <div className="h-full flex flex-col px-4 py-6 space-y-4 pb-24">
                 {/* Header avec recherche */}
                 <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4">
                   <div className="flex items-center justify-between mb-4">
@@ -716,7 +732,7 @@ const FicheApp = () => {
                 </div>
 
                 {/* Liste des conversations */}
-                <div className="space-y-3">
+                <div className="flex-1 overflow-y-auto space-y-3">
                    {conversations.length > 0 ? (
                       conversations.map(renderConversationListItem)
                    ) : (

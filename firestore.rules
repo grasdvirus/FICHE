@@ -4,235 +4,84 @@ service cloud.firestore {
   match /databases/{database}/documents {
     
     // === UTILITY FUNCTIONS ===
-    function getConversationParticipants(conversationId) {
-      return get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds;
-    }
-    
-    function isCommunityMember(communityId, userId) {
-      return exists(/databases/$(database)/documents/communities/$(communityId)/members/$(userId));
-    }
-    
-    function isCommunityAdmin(communityId, userId) {
-      let community = get(/databases/$(database)/documents/communities/$(communityId)).data;
-      let member = get(/databases/$(database)/documents/communities/$(communityId)/members/$(userId)).data;
-      return userId == community.creatorId || 
-             (community.keys().hasAny(['admins']) && userId in community.admins) || 
-             (member.keys().hasAny(['role']) && member.role in ['admin', 'moderator']);
+    function isUserAuthenticated() {
+      return request.auth != null;
     }
 
-    function isConversationModerator(conversationId, userId) {
-      let conversation = get(/databases/$(database)/documents/conversations/$(conversationId)).data;
-      return (conversation.keys().hasAny(['moderators']) && userId in conversation.moderators);
+    function isOwner(userId) {
+      return isUserAuthenticated() && request.auth.uid == userId;
     }
 
-    function isVerifiedUser(userId) {
-      return request.auth.token.email_verified == true;
+    function getConversationData(conversationId) {
+      return get(/databases/$(database)/documents/conversations/$(conversationId)).data;
+    }
+    
+    function isConversationParticipant(conversationId) {
+      return isUserAuthenticated() && request.auth.uid in getConversationData(conversationId).participantIds;
     }
 
     // === VALIDATION FUNCTIONS ===
     function validateUserData(data) {
-      // Adjusted to be less strict and match app data
-      return data.uid == request.auth.uid &&
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'isVerified']) &&
+             data.uid == request.auth.uid &&
              data.email is string &&
              data.displayName is string &&
-             data.isVerified is bool &&
-             (!('visibility' in data) || data.visibility == 'public') &&
-             (!('photoURL' in data) || data.photoURL is string || data.photoURL == null);
+             data.displayName.size() > 0;
     }
     
-    function validateDocumentData(data) {
-      return data.keys().hasAll(['title', 'content', 'authorId', 'createdAt', 'visibility']) &&
-             data.title is string &&
-             data.content is string &&
-             data.authorId is string &&
-             data.visibility in ['public', 'private', 'shared'] &&
-             data.title.size() >= 1 &&
-             data.title.size() <= 200 &&
-             data.content.size() <= 50000;
-    }
-    
-    function validateDocumentUpdate(newData, oldData) {
-      return newData.authorId == oldData.authorId &&
-             newData.createdAt == oldData.createdAt &&
-             validateDocumentData(newData);
-    }
-    
-    function validateConversationData(data) {
-      return data.keys().hasAll(['participantIds', 'createdAt', 'updatedAt', 'type', 'lastMessage']) &&
+    function validateConversationCreation(data) {
+      return data.keys().hasAll(['participants', 'participantIds', 'createdAt', 'updatedAt', 'type', 'lastMessage', 'unreadCounts']) &&
+             data.participants is list &&
              data.participantIds is list &&
-             data.participantIds.size() >= 2 &&
-             data.type in ['direct', 'group'] &&
-             data.lastMessage == null;
+             data.participants.size() == 2 &&
+             data.participants.size() == data.participantIds.size() &&
+             data.type == 'direct' &&
+             data.lastMessage == null &&
+             data.unreadCounts is map &&
+             data.unreadCounts.keys().hasAll(data.participantIds) &&
+             data.unreadCounts[data.participantIds[0]] == 0 &&
+             data.unreadCounts[data.participantIds[1]] == 0;
     }
     
-    function validateConversationUpdate(newData, oldData) {
-      return newData.createdAt == oldData.createdAt &&
-             newData.type == oldData.type &&
-             newData.participantIds.size() == oldData.participantIds.size();
-    }
-    
-    function validateMessageData(data) {
-      return data.keys().hasAll(['content', 'senderId', 'timestamp', 'type']) &&
+    function validateMessageCreation(data) {
+      return data.keys().hasAll(['content', 'senderId', 'timestamp', 'type', 'readBy']) &&
              data.content is string &&
-             data.senderId is string &&
-             data.type in ['text', 'image', 'file', 'ai-suggestion', 'system'] &&
-             data.content.size() >= 1 &&
-             data.content.size() <= 5000;
-    }
-    
-    function validateMessageUpdate(newData, oldData) {
-      return newData.senderId == oldData.senderId &&
-             newData.timestamp == oldData.timestamp &&
-             newData.type == oldData.type &&
-             newData.keys().hasAll(['content', 'edited']) &&
-             newData.edited == true;
-    }
-    
-    function validateCommunityData(data) {
-      return data.keys().hasAll(['name', 'description', 'creatorId', 'createdAt', 'visibility']) &&
-             data.name is string &&
-             data.description is string &&
-             data.creatorId is string &&
-             data.visibility in ['public', 'private'] &&
-             data.name.size() >= 3 &&
-             data.name.size() <= 100 &&
-             data.description.size() <= 500;
-    }
-    
-    function validateCommunityUpdate(newData, oldData) {
-      return newData.creatorId == oldData.creatorId &&
-             newData.createdAt == oldData.createdAt;
-    }
-    
-    function validateMembershipData(data) {
-      return data.keys().hasAll(['joinedAt', 'role']) &&
-             data.role in ['member', 'moderator', 'admin'];
-    }
-    
-    function validateMembershipUpdate(newData, oldData) {
-      return newData.joinedAt == oldData.joinedAt &&
-             newData.role in ['member', 'moderator', 'admin'];
-    }
-    
-    function validateAISuggestionData(data) {
-      return data.keys().hasAll(['originalText', 'suggestions', 'timestamp', 'userId']) &&
-             data.originalText is string &&
-             data.suggestions is list &&
-             data.userId == request.auth.uid &&
-             data.originalText.size() <= 10000;
+             data.senderId == request.auth.uid &&
+             data.type == 'text' && // Only allow text messages
+             data.readBy is list &&
+             data.readBy.size() == 1 &&
+             data.readBy[0] == request.auth.uid &&
+             data.content.size() > 0;
     }
 
     // === MAIN RULES ===
 
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId && validateUserData(request.resource.data);
-    }
-    
-    match /documents/{docId} {
-      allow read: if request.auth != null && 
-                      (resource.data.visibility == 'public' ||
-                       request.auth.uid == resource.data.authorId ||
-                       (resource.data.keys().hasAny(['sharedWith']) && request.auth.uid in resource.data.sharedWith) ||
-                       (resource.data.keys().hasAny(['collaborators']) && request.auth.uid in resource.data.collaborators));
-
-      allow create: if request.auth != null && 
-                        request.auth.uid == request.resource.data.authorId &&
-                        validateDocumentData(request.resource.data);
-
-      allow update: if request.auth != null && 
-                        (request.auth.uid == resource.data.authorId ||
-                         (resource.data.keys().hasAny(['collaborators']) && request.auth.uid in resource.data.collaborators)) &&
-                        validateDocumentUpdate(request.resource.data, resource.data);
-
-      allow delete: if request.auth != null && 
-                        request.auth.uid == resource.data.authorId;
+      allow read: if isUserAuthenticated();
+      allow write: if isOwner(userId) && validateUserData(request.resource.data);
     }
     
     match /conversations/{conversationId} {
-      // KEY FIX: Allow a user to check if a 1-to-1 conversation exists before creating it.
-      allow get: if request.auth != null && 
-                    (request.auth.uid in conversationId.split('_'));
-
-      // Allow reads (get/list) for participants of the conversation.
-      allow read: if request.auth != null && 
-                      request.auth.uid in resource.data.participantIds;
+      allow get: if isUserAuthenticated();
+      allow list, read: if isConversationParticipant(conversationId);
       
-      allow create: if request.auth != null && 
+      allow create: if isUserAuthenticated() && 
                         request.auth.uid in request.resource.data.participantIds &&
-                        (request.resource.data.type == 'direct' || isVerifiedUser(request.auth.uid));
+                        validateConversationCreation(request.resource.data);
       
-      allow update: if request.auth != null && 
-                        request.auth.uid in resource.data.participantIds &&
-                        (resource.data.type == 'direct' || isConversationModerator(conversationId, request.auth.uid) || request.auth.uid in resource.data.participantIds);
-      
-      allow delete: if request.auth != null && 
-                       (resource.data.keys().hasAny(['creatorId']) && request.auth.uid == resource.data.creatorId);
+      allow update: if isConversationParticipant(conversationId) &&
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessage', 'updatedAt', 'unreadCounts']);
     }
     
     match /conversations/{conversationId}/messages/{messageId} {
-      allow read: if request.auth != null && 
-                      request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds;
+      allow list, read: if isConversationParticipant(conversationId);
+
+      allow create: if isConversationParticipant(conversationId) &&
+                       validateMessageCreation(request.resource.data);
       
-      allow create: if request.auth != null && 
-                        request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds &&
-                        request.auth.uid == request.resource.data.senderId &&
-                        validateMessageData(request.resource.data) &&
-                        (request.resource.data.type != 'system' || request.auth.token.admin == true);
-      
-      allow update: if request.auth != null && 
-                        (request.auth.uid == resource.data.senderId || isConversationModerator(conversationId, request.auth.uid)) &&
-                        request.time < resource.data.timestamp + duration.value(5, 'm') &&
-                        validateMessageUpdate(request.resource.data, resource.data);
-      
-      allow delete: if request.auth != null && 
-                        (request.auth.uid == resource.data.senderId || isConversationModerator(conversationId, request.auth.uid));
-    }
-    
-    match /communities/{communityId} {
-      allow read: if request.auth != null && 
-                      (resource.data.visibility == 'public' || isCommunityMember(communityId, request.auth.uid));
-      
-      allow create: if request.auth != null && 
-                        request.auth.uid == request.resource.data.creatorId &&
-                        validateCommunityData(request.resource.data);
-      
-      allow update: if request.auth != null && 
-                        (request.auth.uid == resource.data.creatorId ||
-                         isCommunityAdmin(communityId, request.auth.uid)) &&
-                        validateCommunityUpdate(request.resource.data, resource.data);
-      
-      allow delete: if request.auth != null && 
-                        request.auth.uid == resource.data.creatorId;
-    }
-    
-    match /communities/{communityId}/members/{userId} {
-      allow read: if request.auth != null && 
-                      isCommunityMember(communityId, request.auth.uid);
-      
-      allow create: if request.auth != null && 
-                        request.auth.uid == userId &&
-                        validateMembershipData(request.resource.data) &&
-                        (get(/databases/$(database)/documents/communities/$(communityId)).data.visibility == 'public' || isCommunityAdmin(communityId, request.auth.uid));
-      
-      allow delete: if request.auth != null && 
-                        (request.auth.uid == userId ||
-                         isCommunityAdmin(communityId, request.auth.uid));
-      
-      allow update: if request.auth != null && 
-                        isCommunityAdmin(communityId, request.auth.uid) &&
-                        validateMembershipUpdate(request.resource.data, resource.data);
-    }
-    
-    match /ai-suggestions/{userId} {
-      allow read, write: if request.auth != null && 
-                             request.auth.uid == userId &&
-                             validateAISuggestionData(request.resource.data);
-    }
-    
-    match /analytics/{userId} {
-      allow read, write: if request.auth != null && 
-                             request.auth.uid == userId;
+      allow update: if isConversationParticipant(conversationId) &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']) &&
+                       request.resource.data.readBy == resource.data.readBy.concat([request.auth.uid]);
     }
   }
 }
