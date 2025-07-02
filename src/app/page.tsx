@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -82,9 +81,15 @@ const FicheApp = () => {
       const allParticipantIds = convos.flatMap(c => c.participantIds);
       const uniqueParticipantIds = [...new Set(allParticipantIds)];
       fetchUsersData(uniqueParticipantIds);
-    }, (error) => {
+    }, (error: any) => {
       console.error("Erreur d'écoute des conversations: ", error);
-      if (error.code === 'permission-denied') {
+      if (error.code === 'failed-precondition') {
+          toast({
+              title: "Index Firestore manquant",
+              description: "La base de données nécessite un index pour cette requête. Veuillez cliquer sur le lien dans la console d'erreurs de votre navigateur pour le créer.",
+              variant: "destructive",
+          });
+      } else if (error.code === 'permission-denied') {
         toast({
             title: "Erreur de permission",
             description: "Vérifiez vos règles de sécurité Firestore pour autoriser la lecture des conversations.",
@@ -175,7 +180,7 @@ const FicheApp = () => {
         default:
             break;
     }
-    toast({ title, title, description, variant: 'destructive' });
+    toast({ title, description, variant: 'destructive' });
   };
 
   const handleEmailSignUp = async () => {
@@ -834,3 +839,5 @@ const FicheApp = () => {
 };
 
 export default FicheApp;
+
+    
