@@ -1,16 +1,25 @@
+
 {
   "rules": {
-    // Default to locked down for security
     ".read": false,
     ".write": false,
-
-    // Rules for user presence (online/offline status)
     "status": {
-      // Any authenticated user can read presence data
       ".read": "auth != null",
       "$uid": {
-        // A user can only write to their own status node
         ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "communities": {
+      ".read": "auth != null",
+      "$communityId": {
+        ".write": "auth != null && ((!data.exists() && newData.child('creatorId').val() === auth.uid) || (data.exists() && data.child('creatorId').val() === auth.uid))",
+        ".validate": "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility']) && newData.child('name').isString() && newData.child('name').val().length >= 3 && newData.child('name').val().length <= 100 && newData.child('description').isString() && newData.child('description').val().length <= 500 && newData.child('creatorId').isString() && newData.child('visibility').isString() && newData.child('visibility').val() === 'public'",
+        "members": {
+          "$userId": {
+            ".write": "auth != null && auth.uid === $userId",
+            ".validate": "newData.hasChildren(['joinedAt'])"
+          }
+        }
       }
     }
   }

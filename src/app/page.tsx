@@ -7,7 +7,6 @@ import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Ho
 import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
-import { generateCommunityImage } from '@/ai/flows/generate-community-image';
 import { useToast } from '@/hooks/use-toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -18,10 +17,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser, GoogleAuthProvider } from 'firebase/auth';
-import { auth, googleProvider, db, rtdb, storage } from '@/lib/firebase';
+import { auth, googleProvider, db, rtdb } from '@/lib/firebase';
 import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, getDoc, updateDoc, arrayUnion, writeBatch, increment, deleteDoc } from 'firebase/firestore';
-import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
-import { ref as storageRef, uploadString, getDownloadURL } from 'firebase/storage';
+import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp, push } from 'firebase/database';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
@@ -280,7 +278,6 @@ const FicheApp = () => {
       setUser(currentUser);
       if (currentUser) {
         setShowLogin(false);
-        // Ensure user document exists in Firestore
         const userRef = doc(db, "users", currentUser.uid);
         try {
           const userSnap = await getDoc(userRef);
@@ -308,24 +305,33 @@ const FicheApp = () => {
     return () => unsubscribe();
   }, [toast]);
   
-    // Listen for communities
+    // Listen for communities in Realtime Database
     useEffect(() => {
-      setIsLoadingCommunities(true);
-      const communitiesRef = collection(db, "communities");
-      const q = query(communitiesRef, where("visibility", "==", "public"), orderBy("createdAt", "desc"));
-      
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-          const comms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setCommunities(comms);
-          setIsLoadingCommunities(false);
-      }, (error) => {
-          console.error("Error fetching communities:", error);
-          setIsLoadingCommunities(false);
-          toast({ title: "Erreur", description: "Impossible de charger les communautés." });
-      });
-
-      return () => unsubscribe();
-  }, [toast]);
+        setIsLoadingCommunities(true);
+        const communitiesRef = rtdbRef(rtdb, "communities");
+        
+        const unsubscribe = onValue(communitiesRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                const comms = Object.keys(data).map(key => ({
+                    id: key,
+                    ...data[key]
+                }));
+                // You might want to sort them, e.g., by createdAt
+                comms.sort((a, b) => b.createdAt - a.createdAt);
+                setCommunities(comms);
+            } else {
+                setCommunities([]);
+            }
+            setIsLoadingCommunities(false);
+        }, (error) => {
+            console.error("Error fetching communities from RTDB:", error);
+            setIsLoadingCommunities(false);
+            toast({ title: "Erreur", description: "Impossible de charger les communautés.", variant: 'destructive' });
+        });
+  
+        return () => unsubscribe();
+    }, [toast]);
 
 
   const handleAuthError = (error: any) => {
@@ -363,18 +369,15 @@ const FicheApp = () => {
       toast({ title: "Champs manquants", description: "Veuillez entrer une adresse e-mail et un mot de passe.", variant: "destructive" });
       return;
     }
-    // Vérification de la robustesse du mot de passe
     if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
       toast({ title: "Mot de passe faible", description: "Minimum 8 caractères, une majuscule et un chiffre.", variant: "destructive" });
       return;
     }
     setIsAuthLoading(true);
     try {
-      // 1. Create user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const newUser = userCredential.user;
   
-      // 2. Create user document in Firestore
       const userRef = doc(db, "users", newUser.uid);
       await setDoc(userRef, {
           uid: newUser.uid,
@@ -416,7 +419,6 @@ const FicheApp = () => {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
 
-      // Ensure user document exists after sign-in, as requested
       const userRef = doc(db, "users", user.uid);
       const userSnap = await getDoc(userRef);
       if (!userSnap.exists()) {
@@ -541,7 +543,6 @@ const FicheApp = () => {
                 },
             };
             await setDoc(conversationRef, convoData);
-            // After creating, we pass the new data to be set as selected conversation
             setSelectedConversation({ id: conversationId, ...convoData });
         } else {
             convoData = conversationSnap.data();
@@ -664,22 +665,13 @@ const handleDeleteConversation = async (conversationId: string | null) => {
     }
     setIsCreatingCommunity(true);
     try {
-        // 1. Generate image
-        const imageResult = await generateCommunityImage({ prompt: newCommunityName });
-        
-        // 2. Upload image to storage
-        const communityImageRef = storageRef(storage, `communities/${newCommunityName.replace(/\s+/g, '-')}-${Date.now()}.png`);
-        await uploadString(communityImageRef, imageResult.imageUrl, 'data_url');
-        const downloadURL = await getDownloadURL(communityImageRef);
-
-        // 3. Save community to Firestore
-        await addDoc(collection(db, "communities"), {
+        const communitiesRef = rtdbRef(rtdb, 'communities');
+        await push(communitiesRef, {
             name: newCommunityName,
             description: newCommunityDescription,
             creatorId: user.uid,
-            imageUrl: downloadURL,
             visibility: 'public', // Default to public
-            createdAt: serverTimestamp(),
+            createdAt: rtdbServerTimestamp(),
             memberCount: 1,
         });
         
@@ -689,7 +681,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
         setNewCommunityDescription('');
 
     } catch (error) {
-        console.error("Error creating community:", error);
+        console.error("Error creating community in RTDB:", error);
         toast({ title: "Erreur", description: "Impossible de créer la communauté.", variant: "destructive" });
     } finally {
         setIsCreatingCommunity(false);
@@ -1105,7 +1097,9 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     {communities.map(community => (
                       <div key={community.id} className="flex flex-col items-center text-center space-y-2 cursor-pointer group">
                         <div className="relative w-24 h-24">
-                          <Image src={community.imageUrl || 'https://placehold.co/100x100.png'} alt={community.name} width={100} height={100} className="rounded-full object-cover border-4 border-white shadow-lg group-hover:scale-105 transition-transform" data-ai-hint="community logo" />
+                          <div className="w-24 h-24 rounded-full bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center text-white text-4xl font-bold shadow-lg group-hover:scale-105 transition-transform">
+                             {community.name.charAt(0).toUpperCase()}
+                          </div>
                         </div>
                         <span className="font-semibold text-sm text-gray-800">{community.name}</span>
                       </div>
