@@ -5,14 +5,14 @@
     "status": {
       ".read": "auth != null",
       "$uid": {
-        ".write": "auth != null && auth.uid === $uid"
+        ".write": "auth != null && auth.uid == $uid"
       }
     },
     "communities": {
       ".read": "auth != null",
       "$communityId": {
         ".write": "auth != null",
-        ".validate": "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']) && newData.child('members').numChildren() === newData.child('memberCount').val()",
+        ".validate": "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']) && newData.child('members').numChildren() == newData.child('memberCount').val()",
         "name": {
           ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 100"
         },
@@ -20,20 +20,20 @@
           ".validate": "newData.isString() && newData.val().length <= 500"
         },
         "visibility": {
-          ".validate": "newData.val() === 'public'"
+          ".validate": "newData.val() == 'public'"
         },
         "creatorId": {
-          ".validate": "newData.isString() && (!data.exists() ? newData.val() === auth.uid : newData.val() === data.val())"
+          ".validate": "newData.isString() && ((!data.exists() && newData.val() == auth.uid) || (data.exists() && newData.val() == data.val()))"
         },
         "createdAt": {
-          ".validate": "newData.isNumber() && (!data.exists() || newData.val() === data.val())"
+          ".validate": "newData.isNumber() && ((!data.exists()) || (data.exists() && newData.val() == data.val()))"
         },
         "memberCount": {
-          ".validate": "newData.isNumber() && (newData.val() === 1 && !data.exists() || newData.val() === data.val() + 1)"
+          ".validate": "newData.isNumber() && ((!data.exists() && newData.val() == 1) || (data.exists() && newData.val() == data.val() + 1))"
         },
         "members": {
           "$uid": {
-            ".validate": "newData.hasChildren(['joinedAt']) && newData.child('joinedAt').isNumber() && (!data.exists() ? auth.uid === $uid : true)"
+            ".validate": "newData.hasChildren(['joinedAt']) && newData.child('joinedAt').isNumber() && ((!data.exists() && auth.uid == $uid) || data.exists())"
           }
         }
       }
@@ -43,7 +43,7 @@
         ".read": "root.child('communities/' + $communityId + '/members/' + auth.uid).exists()",
         ".write": "root.child('communities/' + $communityId + '/members/' + auth.uid).exists()",
         "$messageId": {
-          ".validate": "newData.hasChildren(['content', 'senderId', 'timestamp', 'senderName']) && newData.child('content').isString() && newData.child('content').val().length > 0 && newData.child('content').val().length <= 5000 && newData.child('senderId').isString() && newData.child('senderId').val() === auth.uid && newData.child('timestamp').isNumber() && newData.child('senderName').isString()"
+          ".validate": "newData.hasChildren(['content', 'senderId', 'timestamp', 'senderName']) && newData.child('content').isString() && newData.child('content').val().length > 0 && newData.child('content').val().length <= 5000 && newData.child('senderId').isString() && newData.child('senderId').val() == auth.uid && newData.child('timestamp').isNumber() && newData.child('senderName').isString()"
         }
       }
     }
