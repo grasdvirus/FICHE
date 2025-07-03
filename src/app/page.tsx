@@ -1112,16 +1112,17 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                   <h2 className="text-2xl font-bold text-gray-900">Communautés</h2>
                 </div>
                 {isLoadingCommunities ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8 justify-center py-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 justify-center py-6">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <div key={i} className="flex flex-col items-center space-y-3">
-                        <Skeleton className="w-28 h-28 md:w-32 md:h-32 rounded-full" />
-                        <Skeleton className="h-9 w-24 rounded-md" />
+                        <Skeleton className="w-32 h-32 rounded-full" />
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-3 w-16" />
                       </div>
                     ))}
                   </div>
                 ) : communities.length >= 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8 justify-center py-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 justify-center py-6">
                     <CreateCommunityCard onClick={() => setShowCreateCommunityModal(true)} />
                     {communities.map((comm) => {
                       let status: 'creator' | 'member' | 'joinable' = 'joinable';
