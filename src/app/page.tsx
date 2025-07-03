@@ -22,6 +22,7 @@ import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, set
 import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp, push } from 'firebase/database';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { CommunityCard, CreateCommunityCard } from '@/components/community-cards';
 
 // Helper to get a consistent conversation ID
 const getConversationId = (uid1: string, uid2: string) => {
@@ -378,11 +379,10 @@ const FicheApp = () => {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const newUser = userCredential.user;
   
-      const userRef = doc(db, "users", newUser.uid);
-      await setDoc(userRef, {
+      await setDoc(doc(db, "users", newUser.uid), {
           uid: newUser.uid,
           email: newUser.email,
-          displayName: newUser.displayName || newUser.email?.split('@')[0] || "Anonymous",
+          displayName: newUser.email?.split('@')[0] || "Anonymous",
           photoURL: newUser.photoURL || null,
           createdAt: serverTimestamp(),
           isVerified: newUser.emailVerified,
@@ -1078,31 +1078,25 @@ const handleDeleteConversation = async (conversationId: string | null) => {
               <div className="h-full overflow-y-auto p-4 md:p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-bold text-gray-900">Communautés</h2>
-                  <Button onClick={() => setShowCreateCommunityModal(true)} className="bg-gradient-to-r from-purple-500 to-indigo-600">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Créer
-                  </Button>
                 </div>
                 {isLoadingCommunities ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-6 justify-center items-center py-6">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <div key={i} className="flex flex-col items-center space-y-2">
-                        <Skeleton className="w-24 h-24 rounded-full" />
-                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="w-28 h-28 md:w-32 md:h-32 rounded-full" />
                       </div>
                     ))}
                   </div>
-                ) : communities.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                    {communities.map(community => (
-                      <div key={community.id} className="flex flex-col items-center text-center space-y-2 cursor-pointer group">
-                        <div className="relative w-24 h-24">
-                          <div className="w-24 h-24 rounded-full bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center text-white text-4xl font-bold shadow-lg group-hover:scale-105 transition-transform">
-                             {community.name.charAt(0).toUpperCase()}
-                          </div>
-                        </div>
-                        <span className="font-semibold text-sm text-gray-800">{community.name}</span>
-                      </div>
+                ) : communities.length >= 0 ? (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-6 justify-center items-center py-6">
+                    <CreateCommunityCard onClick={() => setShowCreateCommunityModal(true)} />
+                    {communities.map((comm) => (
+                      <CommunityCard
+                        key={comm.id}
+                        name={comm.name}
+                        memberCount={comm.memberCount || 0}
+                        onClick={() => alert(`Ouvrir ${comm.name}`)}
+                      />
                     ))}
                   </div>
                 ) : (

@@ -1,25 +1,27 @@
-
 {
   "rules": {
-    ".read": false,
-    ".write": false,
     "status": {
-      ".read": "auth != null",
       "$uid": {
+        ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid"
       }
     },
+
     "communities": {
       ".read": "auth != null",
+
       "$communityId": {
-        ".write": "auth != null && ((!data.exists() && newData.child('creatorId').val() === auth.uid) || (data.exists() && data.child('creatorId').val() === auth.uid))",
-        ".validate": "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility']) && newData.child('name').isString() && newData.child('name').val().length >= 3 && newData.child('name').val().length <= 100 && newData.child('description').isString() && newData.child('description').val().length <= 500 && newData.child('creatorId').isString() && newData.child('visibility').isString() && newData.child('visibility').val() === 'public'",
-        "members": {
-          "$userId": {
-            ".write": "auth != null && auth.uid === $userId",
-            ".validate": "newData.hasChildren(['joinedAt'])"
-          }
-        }
+        ".write": "auth != null",
+
+        // Empêche de modifier le creatorId
+        "creatorId": {
+          ".validate": "newData.val() === data.val() || !data.exists()"
+        },
+        "memberCount": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        // Empêche de supprimer tout si pas connecté
+        ".validate": "auth != null"
       }
     }
   }
