@@ -3,12 +3,13 @@
 
 import { Plus, UserCheck, Crown } from "lucide-react";
 
-export const CommunityCard = ({ name, memberCount, onJoin, onClick, status = 'joinable' }: {
+export const CommunityCard = ({ name, memberCount, onJoin, onClick, status = 'joinable', unreadCount = 0 }: {
   name: string;
   memberCount: number;
   onJoin?: () => void;
   onClick?: () => void;
   status?: 'joinable' | 'member' | 'creator';
+  unreadCount?: number;
 }) => {
   const isMemberOrCreator = status === 'member' || status === 'creator';
   return (
@@ -23,6 +24,12 @@ export const CommunityCard = ({ name, memberCount, onJoin, onClick, status = 'jo
         <div className="absolute inset-1 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center text-center shadow-inner">
            <span className="text-4xl font-bold text-indigo-700">{name.charAt(0).toUpperCase()}</span>
         </div>
+        
+        {unreadCount > 0 && (
+          <div className="absolute top-0 right-0 bg-red-500 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center border-2 border-white">
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </div>
+        )}
         
         {status === 'joinable' && (
           <button

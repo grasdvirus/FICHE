@@ -46,6 +46,15 @@
           ".validate": "newData.hasChildren(['content', 'senderId', 'timestamp', 'senderName']) && newData.child('content').isString() && newData.child('content').val().length > 0 && newData.child('content').val().length <= 5000 && newData.child('senderId').isString() && newData.child('senderId').val() == auth.uid && newData.child('timestamp').isNumber() && newData.child('senderName').isString()"
         }
       }
+    },
+    "community-unread-counts": {
+      "$communityId": {
+        ".read": "root.child('communities/' + $communityId + '/members/' + auth.uid).exists()",
+        "$uid": {
+          ".write": "root.child('communities/' + $communityId + '/members/' + auth.uid).exists()",
+          ".validate": "newData.isNumber()"
+        }
+      }
     }
   }
 }

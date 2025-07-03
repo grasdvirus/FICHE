@@ -212,6 +212,7 @@ const FicheApp = () => {
   const [selectedCommunity, setSelectedCommunity] = useState<any | null>(null);
   const [communityMessages, setCommunityMessages] = useState<any[]>([]);
   const [newCommunityMessage, setNewCommunityMessage] = useState('');
+  const [communityUnreadCounts, setCommunityUnreadCounts] = useState<{ [key: string]: number }>({});
 
 
   // Fetch user data and cache it
@@ -424,6 +425,30 @@ const FicheApp = () => {
 
         return () => unsubscribe();
     }, [selectedCommunity?.id]);
+
+    // Listen for community unread counts
+    useEffect(() => {
+        if (!user) {
+            setCommunityUnreadCounts({});
+            return;
+        }
+
+        const userCommunities = communities.filter(c => c.members && c.members[user.uid]);
+        const unsubscribers: (() => void)[] = [];
+
+        userCommunities.forEach(comm => {
+            const unreadRef = rtdbRef(rtdb, `community-unread-counts/${comm.id}/${user.uid}`);
+            const unsubscribe = onValue(unreadRef, (snapshot) => {
+                const count = snapshot.val() || 0;
+                setCommunityUnreadCounts(prev => ({ ...prev, [comm.id]: count }));
+            });
+            unsubscribers.push(unsubscribe);
+        });
+
+        return () => {
+            unsubscribers.forEach(unsub => unsub());
+        };
+    }, [user, communities]);
 
 
   const handleAuthError = (error: any) => {
@@ -812,31 +837,62 @@ const handleDeleteConversation = async (conversationId: string | null) => {
     }
   };
 
-    const handleSendCommunityMessage = async () => {
-        if (!newCommunityMessage.trim() || !user || !selectedCommunity?.id) return;
-    
-        const messagesRef = rtdbRef(rtdb, `community-messages/${selectedCommunity.id}`);
-        const newMessageRef = push(messagesRef);
-        
-        try {
-            await rtdbSet(newMessageRef, {
-                content: newCommunityMessage,
-                senderId: user.uid,
-                senderName: user.displayName || user.email?.split('@')[0] || "Anonymous",
-                timestamp: rtdbServerTimestamp(),
-            });
-            setNewCommunityMessage('');
-        } catch (error) {
-            console.error("Error sending community message:", error);
-            toast({
-                title: "Erreur d'envoi",
-                description: "Votre message n'a pas pu être envoyé.",
-                variant: "destructive",
-            });
-        }
-    };
+  const handleSendCommunityMessage = async () => {
+      if (!newCommunityMessage.trim() || !user || !selectedCommunity?.id) return;
   
-    const renderConversationListItem = (conversation: any) => {
+      const messagesRef = rtdbRef(rtdb, `community-messages/${selectedCommunity.id}`);
+      const newMessageRef = push(messagesRef);
+      
+      try {
+          const messageContent = newCommunityMessage;
+          setNewCommunityMessage('');
+
+          await rtdbSet(newMessageRef, {
+              content: messageContent,
+              senderId: user.uid,
+              senderName: user.displayName || user.email?.split('@')[0] || "Anonymous",
+              timestamp: rtdbServerTimestamp(),
+          });
+
+          // Increment unread count for other members
+          const members = selectedCommunity.members ? Object.keys(selectedCommunity.members) : [];
+          members.forEach(memberId => {
+              if (memberId !== user.uid) {
+                  const unreadRef = rtdbRef(rtdb, `community-unread-counts/${selectedCommunity.id}/${memberId}`);
+                  runTransaction(unreadRef, (currentCount) => {
+                      return (currentCount || 0) + 1;
+                  });
+              }
+          });
+
+      } catch (error) {
+          console.error("Error sending community message:", error);
+          toast({
+              title: "Erreur d'envoi",
+              description: "Votre message n'a pas pu être envoyé.",
+              variant: "destructive",
+          });
+      }
+  };
+
+  const handleEnterCommunity = (community: any) => {
+      if (!user) return;
+      
+      const unreadRef = rtdbRef(rtdb, `community-unread-counts/${community.id}/${user.uid}`);
+      rtdbSet(unreadRef, 0);
+
+      setSelectedCommunity(community);
+  };
+  
+  const totalUnreadDirectMessages = conversations.reduce((acc, conv) => {
+      return acc + (conv.unreadCounts?.[user?.uid || ''] || 0);
+  }, 0);
+
+  const totalUnreadCommunityMessages = Object.values(communityUnreadCounts).reduce((acc, count) => {
+      return acc + count;
+  }, 0);
+  
+  const renderConversationListItem = (conversation: any) => {
       if (!user || !usersCache) return null;
       
       const otherParticipantId = conversation.participantIds.find((id: string) => id !== user.uid);
@@ -1265,8 +1321,9 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                           name={comm.name}
                           memberCount={comm.memberCount || 0}
                           status={status}
+                          unreadCount={communityUnreadCounts[comm.id] || 0}
                           onJoin={() => handleJoinCommunity(comm.id)}
-                          onClick={() => setSelectedCommunity(comm)}
+                          onClick={() => handleEnterCommunity(comm)}
                         />
                       )
                     })}
@@ -1294,28 +1351,38 @@ const handleDeleteConversation = async (conversationId: string | null) => {
       <nav className="backdrop-blur-md bg-white/90 border-t border-blue-200/50 shadow-lg z-20">
         <div className="flex justify-around items-center py-2">
           <button 
-            className={`flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'editor' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
+            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'editor' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
             onClick={() => { setActiveTab('editor'); setSelectedConversation(null); setSelectedCommunity(null); }}
           >
             <Home className="h-5 w-5 mb-1" />
             <span className="text-xs font-medium">Accueil</span>
           </button>
           <button 
-            className={`flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'mail' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
+            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'mail' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
             onClick={() => { setActiveTab('mail'); setSelectedCommunity(null); }}
           >
             <MessageCircle className="h-5 w-5 mb-1" />
             <span className="text-xs font-medium">Messages</span>
+            {totalUnreadDirectMessages > 0 && (
+              <div className="absolute top-1 right-3 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                {totalUnreadDirectMessages > 9 ? '9+' : totalUnreadDirectMessages}
+              </div>
+            )}
           </button>
           <button 
-            className={`flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'community' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
+            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'community' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
             onClick={() => { setActiveTab('community'); setSelectedConversation(null); }}
           >
             <Users className="h-5 w-5 mb-1" />
             <span className="text-xs font-medium">Communautés</span>
+             {totalUnreadCommunityMessages > 0 && (
+                <div className="absolute top-1 right-3 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                    {totalUnreadCommunityMessages > 9 ? '9+' : totalUnreadCommunityMessages}
+                </div>
+            )}
           </button>
           <button 
-            className={`flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'ia' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
+            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'ia' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
             onClick={() => { setActiveTab('ia'); setSelectedConversation(null); setSelectedCommunity(null); }}
           >
             <Bot className="h-5 w-5 mb-1" />
