@@ -3,16 +3,21 @@
 
 import { Plus, UserCheck, Crown } from "lucide-react";
 
-export const CommunityCard = ({ name, memberCount, onJoin, status = 'joinable' }: {
+export const CommunityCard = ({ name, memberCount, onJoin, onClick, status = 'joinable' }: {
   name: string;
   memberCount: number;
   onJoin?: () => void;
+  onClick?: () => void;
   status?: 'joinable' | 'member' | 'creator';
 }) => {
+  const isMemberOrCreator = status === 'member' || status === 'creator';
   return (
-    <div className="flex flex-col items-center space-y-2 text-center">
+    <div 
+      className="flex flex-col items-center space-y-2 text-center"
+      onClick={isMemberOrCreator ? onClick : undefined}
+    >
       <div
-        className="relative w-28 h-28 md:w-32 md:h-32 group cursor-pointer"
+        className={`relative w-28 h-28 md:w-32 md:h-32 group ${isMemberOrCreator ? 'cursor-pointer' : ''}`}
       >
         <div className="absolute inset-0 rounded-full bg-gradient-to-br from-purple-500 via-indigo-500 to-blue-600 shadow-xl group-hover:rotate-2 transition-all duration-300"></div>
         <div className="absolute inset-1 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center text-center shadow-inner">

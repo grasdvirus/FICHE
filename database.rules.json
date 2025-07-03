@@ -1,3 +1,4 @@
+
 {
   "rules": {
     ".read": false,
@@ -14,49 +15,24 @@
       ".read": "auth != null",
 
       "$communityId": {
-        // --- VALIDATE Structure on every write ---
-        ".validate": "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']) &&
-                      newData.child('name').isString() && newData.child('name').val().length >= 3 && newData.child('name').val().length <= 100 &&
-                      newData.child('description').isString() && newData.child('description').val().length <= 500 &&
-                      newData.child('creatorId').isString() &&
-                      newData.child('createdAt').isNumber() &&
-                      newData.child('visibility').val() === 'public' &&
-                      newData.child('memberCount').isNumber() && newData.child('memberCount').val() >= 1 &&
-                      // Ensure memberCount always matches the actual number of members
-                      newData.child('memberCount').val() === newData.child('members').numChildren()",
+        ".validate": "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']) && newData.child('name').isString() && newData.child('name').val().length >= 3 && newData.child('name').val().length <= 100 && newData.child('description').isString() && newData.child('description').val().length <= 500 && newData.child('creatorId').isString() && newData.child('createdAt').isNumber() && newData.child('visibility').val() === 'public' && newData.child('memberCount').isNumber() && newData.child('memberCount').val() >= 1 && newData.child('memberCount').val() === newData.child('members').numChildren()",
 
-        // --- WRITE logic ---
-        ".write": "auth != null && (
-                      // Case 1: CREATE Community
-                      (
-                        !data.exists() &&
-                        newData.child('creatorId').val() === auth.uid &&
-                        newData.child('memberCount').val() === 1 &&
-                        newData.child('members').hasChild(auth.uid)
-                      )
-                      ||
-                      // Case 2: JOIN Community
-                      (
-                        data.exists() &&
-                        // User is adding themselves as a new member
-                        !data.child('members').child(auth.uid).exists() &&
-                        newData.child('members').child(auth.uid).exists() &&
-                        // Member count is correctly incremented
-                        newData.child('memberCount').val() === data.child('memberCount').val() + 1 &&
-                        // Core community details are immutable during a join operation
-                        newData.child('creatorId').val() === data.child('creatorId').val() &&
-                        newData.child('createdAt').val() === data.child('createdAt').val() &&
-                        newData.child('name').val() === data.child('name').val() &&
-                        newData.child('description').val() === data.child('description').val() &&
-                        newData.child('visibility').val() === data.child('visibility').val()
-                      )
-                   )",
+        ".write": "auth != null && ( ( !data.exists() && newData.child('creatorId').val() === auth.uid && newData.child('memberCount').val() === 1 && newData.child('members').hasChild(auth.uid) ) || ( data.exists() && !data.child('members').child(auth.uid).exists() && newData.child('members').child(auth.uid).exists() && newData.child('memberCount').val() === data.child('memberCount').val() + 1 && newData.child('creatorId').val() === data.child('creatorId').val() && newData.child('createdAt').val() === data.child('createdAt').val() && newData.child('name').val() === data.child('name').val() && newData.child('description').val() === data.child('description').val() && newData.child('visibility').val() === data.child('visibility').val() ) )",
         
         "members": {
           "$userId": {
-            // Validate the structure of a member object
             ".validate": "newData.hasChildren(['joinedAt'])"
           }
+        }
+      }
+    },
+
+    "community-messages": {
+      "$communityId": {
+        ".read": "root.child('communities/' + $communityId + '/members/' + auth.uid).exists()",
+        ".write": "root.child('communities/' + $communityId + '/members/' + auth.uid).exists()",
+        "$messageId": {
+          ".validate": "newData.hasChildren(['content', 'senderId', 'timestamp', 'senderName']) && newData.child('content').isString() && newData.child('content').val().length > 0 && newData.child('content').val().length <= 5000 && newData.child('senderId').isString() && newData.child('senderId').val() === auth.uid && newData.child('timestamp').isNumber() && newData.child('senderName').isString()"
         }
       }
     }

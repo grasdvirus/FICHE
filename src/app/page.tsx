@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser, GoogleAuthProvider } from 'firebase/auth';
 import { auth, googleProvider, db, rtdb } from '@/lib/firebase';
 import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, getDoc, updateDoc, arrayUnion, writeBatch, increment, deleteDoc } from 'firebase/firestore';
-import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp, push, runTransaction } from 'firebase/database';
+import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp, push, runTransaction, query as rtdbQuery, orderByChild } from 'firebase/database';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { CommunityCard, CreateCommunityCard } from '@/components/community-cards';
@@ -100,6 +100,72 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
   );
 };
 
+const CommunityChatView = ({ user, community, messages, newMessage, setNewMessage, onSendMessage, onBack }: any) => {
+    const messagesEndRef = useRef<null | HTMLDivElement>(null);
+  
+    const scrollToBottom = () => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  
+    useEffect(() => {
+      scrollToBottom();
+    }, [messages]);
+  
+    if (!community?.id || !user) return null;
+  
+    return (
+        <div className="h-full flex flex-col">
+            {/* Header */}
+            <div className="flex items-center p-4 border-b border-purple-200/50 backdrop-blur-lg bg-white/90">
+                <button onClick={onBack} className="mr-4 p-2 rounded-full hover:bg-gray-200">
+                    <ArrowLeft className="h-5 w-5 text-gray-700" />
+                </button>
+                <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-full flex items-center justify-center mr-3">
+                    <span className="text-white font-semibold text-lg">{community.name.charAt(0).toUpperCase()}</span>
+                </div>
+                <div>
+                    <h2 className="font-semibold text-gray-900">{community.name}</h2>
+                    <p className="text-xs text-gray-500">{community.memberCount} {community.memberCount > 1 ? 'membres' : 'membre'}</p>
+                </div>
+            </div>
+  
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.map((msg: any) => (
+                    <div key={msg.id} className={`flex flex-col gap-1 ${msg.senderId === user.uid ? 'items-end' : 'items-start'}`}>
+                        {msg.senderId !== user.uid && <span className="text-xs text-gray-500 ml-3">{msg.senderName}</span>}
+                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-indigo-500 text-white rounded-br-none' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
+                            <p className="text-sm">{msg.content}</p>
+                        </div>
+                    </div>
+                ))}
+                <div ref={messagesEndRef} />
+            </div>
+  
+            {/* Input Area */}
+            <div className="p-4 border-t border-purple-200/50 backdrop-blur-lg bg-white/90">
+                <div className="flex items-center space-x-2">
+                    <input 
+                        type="text"
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && onSendMessage()}
+                        placeholder="Écrivez un message dans la communauté..."
+                        className="flex-1 w-full p-3 border-2 border-purple-200/50 rounded-xl focus:border-purple-500 focus:outline-none bg-purple-50/30 backdrop-blur-sm text-sm"
+                    />
+                    <button 
+                        onClick={onSendMessage}
+                        className="w-12 h-12 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center text-white disabled:opacity-50"
+                        disabled={!newMessage.trim()}
+                    >
+                        <Send className="h-5 w-5" />
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const FicheApp = () => {
   const [activeTab, setActiveTab] = useState('editor');
@@ -143,6 +209,9 @@ const FicheApp = () => {
   const [newCommunityDescription, setNewCommunityDescription] = useState('');
   const [isCreatingCommunity, setIsCreatingCommunity] = useState(false);
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [selectedCommunity, setSelectedCommunity] = useState<any | null>(null);
+  const [communityMessages, setCommunityMessages] = useState<any[]>([]);
+  const [newCommunityMessage, setNewCommunityMessage] = useState('');
 
 
   // Fetch user data and cache it
@@ -318,7 +387,6 @@ const FicheApp = () => {
                     id: key,
                     ...data[key]
                 }));
-                // You might want to sort them, e.g., by createdAt
                 comms.sort((a, b) => b.createdAt - a.createdAt);
                 setCommunities(comms);
             } else {
@@ -333,6 +401,29 @@ const FicheApp = () => {
   
         return () => unsubscribe();
     }, [toast]);
+
+    // Listen for community messages
+    useEffect(() => {
+        if (!selectedCommunity?.id) {
+            setCommunityMessages([]);
+            return;
+        }
+
+        const messagesRef = rtdbRef(rtdb, `community-messages/${selectedCommunity.id}`);
+        const q = rtdbQuery(messagesRef, orderByChild('timestamp'));
+
+        const unsubscribe = onValue(q, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                const msgs = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+                setCommunityMessages(msgs);
+            } else {
+                setCommunityMessages([]);
+            }
+        });
+
+        return () => unsubscribe();
+    }, [selectedCommunity?.id]);
 
 
   const handleAuthError = (error: any) => {
@@ -447,6 +538,7 @@ const FicheApp = () => {
     }
     await signOut(auth);
     setSelectedConversation(null);
+    setSelectedCommunity(null);
     toast({ title: 'Déconnexion', description: 'Vous avez été déconnecté.' });
   };
 
@@ -719,6 +811,30 @@ const handleDeleteConversation = async (conversationId: string | null) => {
         toast({ title: "Erreur", description: "Impossible de rejoindre la communauté pour le moment.", variant: "destructive" });
     }
   };
+
+    const handleSendCommunityMessage = async () => {
+        if (!newCommunityMessage.trim() || !user || !selectedCommunity?.id) return;
+    
+        const messagesRef = rtdbRef(rtdb, `community-messages/${selectedCommunity.id}`);
+        const newMessageRef = push(messagesRef);
+        
+        try {
+            await rtdbSet(newMessageRef, {
+                content: newCommunityMessage,
+                senderId: user.uid,
+                senderName: user.displayName || user.email?.split('@')[0] || "Anonymous",
+                timestamp: rtdbServerTimestamp(),
+            });
+            setNewCommunityMessage('');
+        } catch (error) {
+            console.error("Error sending community message:", error);
+            toast({
+                title: "Erreur d'envoi",
+                description: "Votre message n'a pas pu être envoyé.",
+                variant: "destructive",
+            });
+        }
+    };
   
     const renderConversationListItem = (conversation: any) => {
       if (!user || !usersCache) return null;
@@ -1106,6 +1222,16 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                    </Button>
                  </div>
                </div>
+            ) : selectedCommunity ? (
+                <CommunityChatView
+                    user={user}
+                    community={selectedCommunity}
+                    messages={communityMessages}
+                    newMessage={newCommunityMessage}
+                    setNewMessage={setNewCommunityMessage}
+                    onSendMessage={handleSendCommunityMessage}
+                    onBack={() => setSelectedCommunity(null)}
+                />
             ) : (
               <div className="h-full overflow-y-auto p-4 md:p-6">
                 <div className="flex justify-between items-center mb-6">
@@ -1121,7 +1247,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                       </div>
                     ))}
                   </div>
-                ) : communities.length >= 0 ? (
+                ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 justify-center py-6">
                     <CreateCommunityCard onClick={() => setShowCreateCommunityModal(true)} />
                     {communities.map((comm) => {
@@ -1140,15 +1266,10 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                           memberCount={comm.memberCount || 0}
                           status={status}
                           onJoin={() => handleJoinCommunity(comm.id)}
+                          onClick={() => setSelectedCommunity(comm)}
                         />
                       )
                     })}
-                  </div>
-                ) : (
-                  <div className="text-center py-16 text-gray-500">
-                    <Users className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                    <h3 className="text-lg font-medium">Aucune communauté trouvée</h3>
-                    <p className="text-sm">Soyez le premier à en créer une !</p>
                   </div>
                 )}
               </div>
@@ -1174,14 +1295,14 @@ const handleDeleteConversation = async (conversationId: string | null) => {
         <div className="flex justify-around items-center py-2">
           <button 
             className={`flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'editor' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
-            onClick={() => { setActiveTab('editor'); setSelectedConversation(null); }}
+            onClick={() => { setActiveTab('editor'); setSelectedConversation(null); setSelectedCommunity(null); }}
           >
             <Home className="h-5 w-5 mb-1" />
             <span className="text-xs font-medium">Accueil</span>
           </button>
           <button 
             className={`flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'mail' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
-            onClick={() => setActiveTab('mail')}
+            onClick={() => { setActiveTab('mail'); setSelectedCommunity(null); }}
           >
             <MessageCircle className="h-5 w-5 mb-1" />
             <span className="text-xs font-medium">Messages</span>
@@ -1195,7 +1316,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
           </button>
           <button 
             className={`flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'ia' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
-            onClick={() => { setActiveTab('ia'); setSelectedConversation(null); }}
+            onClick={() => { setActiveTab('ia'); setSelectedConversation(null); setSelectedCommunity(null); }}
           >
             <Bot className="h-5 w-5 mb-1" />
             <span className="text-xs font-medium">IA</span>
