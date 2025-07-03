@@ -13,39 +13,8 @@
     "communities": {
       ".read": "auth != null",
       "$communityId": {
-        // Anyone authenticated can attempt a write, but it must pass validation.
         ".write": "auth != null",
-
-        // This rule validates the data for both creation and joining a community.
-        ".validate": 
-          // Case 1: A new community is being created.
-          "( !data.exists() && " +
-            "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']) && " +
-            "newData.child('name').isString() && newData.child('name').val().length >= 3 && newData.child('name').val().length <= 100 && " +
-            "newData.child('description').isString() && newData.child('description').val().length <= 500 && " +
-            "newData.child('creatorId').isString() && newData.child('creatorId').val() === auth.uid && " +
-            "newData.child('createdAt').isNumber() && " +
-            "newData.child('visibility').val() === 'public' && " +
-            "newData.child('memberCount').isNumber() && newData.child('memberCount').val() === 1 && " +
-            "newData.child('members').hasChild(auth.uid) && " +
-            "newData.child('members').child(auth.uid).hasChildren(['joinedAt'])" +
-          ") || " +
-          // Case 2: An existing member is joining.
-          "( data.exists() && " +
-            // The user must not already be a member.
-            "!data.child('members').hasChild(auth.uid) && " +
-            // The user must be the one being added now.
-            "newData.child('members').hasChild(auth.uid) && " +
-            // Verify that only the member list and count are changing.
-            "newData.child('memberCount').val() === data.child('memberCount').val() + 1 && " +
-            "newData.child('members').numChildren() === data.child('members').numChildren() + 1 && " +
-            // Verify that all other top-level fields are unchanged.
-            "newData.child('name').val() === data.child('name').val() && " +
-            "newData.child('description').val() === data.child('description').val() && " +
-            "newData.child('creatorId').val() === data.child('creatorId').val() && " +
-            "newData.child('createdAt').val() === data.child('createdAt').val() && " +
-            "newData.child('visibility').val() === data.child('visibility').val()" +
-          ")"
+        ".validate": "( !data.exists() && newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']) && newData.child('name').isString() && newData.child('name').val().length >= 3 && newData.child('name').val().length <= 100 && newData.child('description').isString() && newData.child('description').val().length <= 500 && newData.child('creatorId').isString() && newData.child('creatorId').val() === auth.uid && newData.child('createdAt').isNumber() && newData.child('visibility').val() === 'public' && newData.child('memberCount').isNumber() && newData.child('memberCount').val() === 1 && newData.child('members').hasChild(auth.uid) && newData.child('members').child(auth.uid).hasChildren(['joinedAt'])) || ( data.exists() && !data.child('members').hasChild(auth.uid) && newData.child('members').hasChild(auth.uid) && newData.child('memberCount').val() === data.child('memberCount').val() + 1 && newData.child('members').numChildren() === data.child('members').numChildren() + 1 && newData.child('name').val() === data.child('name').val() && newData.child('description').val() === data.child('description').val() && newData.child('creatorId').val() === data.child('creatorId').val() && newData.child('createdAt').val() === data.child('createdAt').val() && newData.child('visibility').val() === data.child('visibility').val())"
       }
     },
 
