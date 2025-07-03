@@ -2,22 +2,43 @@
   "rules": {
     ".read": false,
     ".write": false,
-
     "status": {
       ".read": "auth != null",
       "$uid": {
         ".write": "auth != null && auth.uid === $uid"
       }
     },
-
     "communities": {
       ".read": "auth != null",
       "$communityId": {
         ".write": "auth != null",
-        ".validate": "( !data.exists() && newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']) && newData.child('name').isString() && newData.child('name').val().length >= 3 && newData.child('name').val().length <= 100 && newData.child('description').isString() && newData.child('description').val().length <= 500 && newData.child('creatorId').isString() && newData.child('creatorId').val() === auth.uid && newData.child('createdAt').isNumber() && newData.child('visibility').val() === 'public' && newData.child('memberCount').isNumber() && newData.child('memberCount').val() === 1 && newData.child('members').hasChild(auth.uid) && newData.child('members').child(auth.uid).hasChildren(['joinedAt'])) || ( data.exists() && !data.child('members').hasChild(auth.uid) && newData.child('members').hasChild(auth.uid) && newData.child('memberCount').val() === data.child('memberCount').val() + 1 && newData.child('members').numChildren() === data.child('members').numChildren() + 1 && newData.child('name').val() === data.child('name').val() && newData.child('description').val() === data.child('description').val() && newData.child('creatorId').val() === data.child('creatorId').val() && newData.child('createdAt').val() === data.child('createdAt').val() && newData.child('visibility').val() === data.child('visibility').val())"
+        ".validate": "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members'])",
+        "name": {
+          ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 100"
+        },
+        "description": {
+          ".validate": "newData.isString() && newData.val().length <= 500"
+        },
+        "visibility": {
+          ".validate": "newData.val() === 'public'"
+        },
+        "creatorId": {
+          ".validate": "newData.isString() && (!data.exists() ? newData.val() === auth.uid : newData.val() === data.val())"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber() && (!data.exists() || newData.val() === data.val())"
+        },
+        "memberCount": {
+          ".validate": "newData.isNumber() && (newData.val() === 1 && !data.exists() || newData.val() === data.val() + 1)"
+        },
+        "members": {
+          ".validate": "newData.numChildren() === newData.parent().child('memberCount').val()",
+          "$uid": {
+            ".validate": "newData.hasChildren(['joinedAt']) && newData.child('joinedAt').isNumber() && (!data.exists() ? auth.uid === $uid : true)"
+          }
+        }
       }
     },
-
     "community-messages": {
       "$communityId": {
         ".read": "root.child('communities/' + $communityId + '/members/' + auth.uid).exists()",
