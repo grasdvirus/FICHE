@@ -12,7 +12,7 @@
       ".read": "auth != null",
       "$communityId": {
         ".write": "auth != null",
-        ".validate": "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']) && newData.child('members').numChildren() == newData.child('memberCount').val()",
+        ".validate": "((!data.exists() && newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members'])) || data.exists()) && newData.child('members').numChildren() == newData.child('memberCount').val()",
         "name": {
           ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 100"
         },
@@ -29,7 +29,7 @@
           ".validate": "newData.isNumber() && ((!data.exists()) || (data.exists() && newData.val() == data.val()))"
         },
         "memberCount": {
-          ".validate": "newData.isNumber() && ((!data.exists() && newData.val() == 1) || (data.exists() && newData.val() == data.val() + 1))"
+          ".validate": "newData.isNumber() && ((!data.exists() && newData.val() == 1) || (data.exists() && newData.val() >= data.val()))"
         },
         "members": {
           "$uid": {
