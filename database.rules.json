@@ -23,7 +23,7 @@
                       newData.child('visibility').val() === 'public' &&
                       newData.child('memberCount').isNumber() && newData.child('memberCount').val() >= 1 &&
                       // Ensure memberCount always matches the actual number of members
-                      newData.child('memberCount').val() === newData.child('members').val().keys().size()",
+                      newData.child('memberCount').val() === newData.child('members').numChildren()",
 
         // --- WRITE logic ---
         ".write": "auth != null && (
