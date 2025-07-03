@@ -12,7 +12,7 @@
       ".read": "auth != null",
       "$communityId": {
         ".write": "auth != null",
-        ".validate": "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members'])",
+        ".validate": "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']) && newData.child('members').numChildren() === newData.child('memberCount').val()",
         "name": {
           ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 100"
         },
@@ -32,7 +32,6 @@
           ".validate": "newData.isNumber() && (newData.val() === 1 && !data.exists() || newData.val() === data.val() + 1)"
         },
         "members": {
-          ".validate": "newData.numChildren() === newData.parent().child('memberCount').val()",
           "$uid": {
             ".validate": "newData.hasChildren(['joinedAt']) && newData.child('joinedAt').isNumber() && (!data.exists() ? auth.uid === $uid : true)"
           }
