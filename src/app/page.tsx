@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser, GoogleAuthProvider } from 'firebase/auth';
 import { auth, googleProvider, db, rtdb } from '@/lib/firebase';
 import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, getDoc, updateDoc, arrayUnion, writeBatch, increment, deleteDoc } from 'firebase/firestore';
-import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp, push } from 'firebase/database';
+import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp, push, runTransaction } from 'firebase/database';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { CommunityCard, CreateCommunityCard } from '@/components/community-cards';
@@ -665,14 +665,19 @@ const handleDeleteConversation = async (conversationId: string | null) => {
     }
     setIsCreatingCommunity(true);
     try {
-        const communitiesRef = rtdbRef(rtdb, 'communities');
-        await push(communitiesRef, {
+        const newCommunityRef = push(rtdbRef(rtdb, 'communities'));
+        await rtdbSet(newCommunityRef, {
             name: newCommunityName,
             description: newCommunityDescription,
             creatorId: user.uid,
-            visibility: 'public', // Default to public
+            visibility: 'public',
             createdAt: rtdbServerTimestamp(),
             memberCount: 1,
+            members: {
+                [user.uid]: {
+                    joinedAt: rtdbServerTimestamp()
+                }
+            }
         });
         
         toast({ title: "Communauté créée !", description: "Votre communauté est maintenant en ligne." });
@@ -685,6 +690,33 @@ const handleDeleteConversation = async (conversationId: string | null) => {
         toast({ title: "Erreur", description: "Impossible de créer la communauté.", variant: "destructive" });
     } finally {
         setIsCreatingCommunity(false);
+    }
+  };
+  
+  const handleJoinCommunity = async (communityId: string) => {
+    if (!user) {
+        toast({ title: "Non authentifié", description: "Vous devez être connecté pour rejoindre une communauté.", variant: "destructive" });
+        return;
+    }
+    const communityRef = rtdbRef(rtdb, `communities/${communityId}`);
+    try {
+        await runTransaction(communityRef, (currentData) => {
+            if (currentData) {
+                if (currentData.members && currentData.members[user.uid]) {
+                    return; 
+                }
+                currentData.memberCount = (currentData.memberCount || 0) + 1;
+                if (!currentData.members) {
+                    currentData.members = {};
+                }
+                currentData.members[user.uid] = { joinedAt: rtdbServerTimestamp() };
+            }
+            return currentData;
+        });
+        toast({ title: "Bienvenue !", description: "Vous avez rejoint la communauté avec succès." });
+    } catch (error) {
+        console.error("Erreur pour rejoindre la communauté:", error);
+        toast({ title: "Erreur", description: "Impossible de rejoindre la communauté pour le moment.", variant: "destructive" });
     }
   };
   
@@ -1080,24 +1112,36 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                   <h2 className="text-2xl font-bold text-gray-900">Communautés</h2>
                 </div>
                 {isLoadingCommunities ? (
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-6 justify-center items-center py-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8 justify-center py-6">
                     {Array.from({ length: 5 }).map((_, i) => (
-                      <div key={i} className="flex flex-col items-center space-y-2">
+                      <div key={i} className="flex flex-col items-center space-y-3">
                         <Skeleton className="w-28 h-28 md:w-32 md:h-32 rounded-full" />
+                        <Skeleton className="h-9 w-24 rounded-md" />
                       </div>
                     ))}
                   </div>
                 ) : communities.length >= 0 ? (
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-6 justify-center items-center py-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-8 justify-center py-6">
                     <CreateCommunityCard onClick={() => setShowCreateCommunityModal(true)} />
-                    {communities.map((comm) => (
-                      <CommunityCard
-                        key={comm.id}
-                        name={comm.name}
-                        memberCount={comm.memberCount || 0}
-                        onClick={() => alert(`Ouvrir ${comm.name}`)}
-                      />
-                    ))}
+                    {communities.map((comm) => {
+                      let status: 'creator' | 'member' | 'joinable' = 'joinable';
+                      if (user) {
+                          if (comm.creatorId === user.uid) {
+                              status = 'creator';
+                          } else if (comm.members && comm.members[user.uid]) {
+                              status = 'member';
+                          }
+                      }
+                      return (
+                        <CommunityCard
+                          key={comm.id}
+                          name={comm.name}
+                          memberCount={comm.memberCount || 0}
+                          status={status}
+                          onJoin={() => handleJoinCommunity(comm.id)}
+                        />
+                      )
+                    })}
                   </div>
                 ) : (
                   <div className="text-center py-16 text-gray-500">
