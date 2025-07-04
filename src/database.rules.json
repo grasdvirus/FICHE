@@ -1,4 +1,3 @@
-
 {
   "rules": {
     ".read": false,
@@ -13,15 +12,15 @@
       ".read": "auth != null",
       "$communityId": {
         ".write": "auth != null",
-        ".validate": "(!newData.exists() && data.exists() && data.child('creatorId').val() == auth.uid) || (newData.exists() && newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']) && (newData.child('name').val() == data.child('name').val() || (data.exists() && data.child('creatorId').val() == auth.uid)) && (newData.child('description').val() == data.child('description').val() || (data.exists() && data.child('creatorId').val() == auth.uid)))",
+        ".validate": "(!newData.exists() && data.child('creatorId').val() == auth.uid) || (newData.exists() && newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']))",
         "name": {
-          ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 100"
+          ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 100 && (!data.exists() || newData.val() == data.val() || data.child('creatorId').val() == auth.uid)"
         },
         "description": {
-          ".validate": "newData.isString() && newData.val().length <= 500"
+          ".validate": "newData.isString() && newData.val().length <= 500 && (!data.exists() || newData.val() == data.val() || data.child('creatorId').val() == auth.uid)"
         },
         "visibility": {
-          ".validate": "newData.val() == 'public'"
+          ".validate": "newData.val() == 'public' && (!data.exists() || newData.val() == data.val())"
         },
         "creatorId": {
           ".validate": "newData.isString() && ((!data.exists() && newData.val() == auth.uid) || (data.exists() && newData.val() == data.val()))"
@@ -36,6 +35,9 @@
           "$uid": {
             ".validate": "(newData.exists() && newData.hasChildren(['joinedAt']) && newData.child('joinedAt').isNumber()) || (!newData.exists() && data.exists())"
           }
+        },
+        "$other": {
+          ".validate": false
         }
       }
     },
@@ -59,5 +61,3 @@
     }
   }
 }
-
-    
