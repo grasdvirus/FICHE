@@ -5,6 +5,9 @@ import { Toaster } from "@/components/ui/toaster";
 export const metadata: Metadata = {
   title: 'Fiche AI Assistant',
   description: 'Votre assistant IA intelligent',
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({
