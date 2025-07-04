@@ -1010,15 +1010,14 @@ const handleDeleteConversation = async (conversationId: string | null) => {
   const handleDeleteCommunity = async () => {
     if (!showDeleteCommunityConfirm) return;
     const communityId = showDeleteCommunityConfirm.id;
-    const communityRef = rtdbRef(rtdb, `communities/${communityId}`);
-    const messagesRef = rtdbRef(rtdb, `community-messages/${communityId}`);
-    const unreadCountsRef = rtdbRef(rtdb, `community-unread-counts/${communityId}`);
-  
+    
     try {
-        // Delete all related data
-        await rtdbRemove(communityRef);
-        await rtdbRemove(messagesRef);
-        await rtdbRemove(unreadCountsRef);
+        const updates: { [key: string]: null } = {};
+        updates[`/communities/${communityId}`] = null;
+        updates[`/community-messages/${communityId}`] = null;
+        updates[`/community-unread-counts/${communityId}`] = null;
+
+        await rtdbUpdate(rtdbRef(rtdb), updates);
         
         toast({ title: "Communauté supprimée", description: "La communauté et tous ses messages ont été supprimés." });
         setSelectedCommunity(null);
@@ -1075,79 +1074,6 @@ const handleDeleteConversation = async (conversationId: string | null) => {
         return otherUser?.displayName?.toLowerCase().includes(conversationSearchQuery.toLowerCase());
     });
   
-  const renderConversationListItem = (conversation: any) => {
-      if (!user || !usersCache) return null;
-      
-      const otherParticipantId = conversation.participantIds.find((id: string) => id !== user.uid);
-      if (!otherParticipantId) return null;
-      
-      const otherUser = usersCache[otherParticipantId];
-      const lastMessage = conversation.lastMessage;
-      const isOnline = presenceCache[otherParticipantId]?.state === 'online';
-      const unreadCount = conversation.unreadCounts?.[user.uid] || 0;
-      
-      if (!otherUser) return null; // Don't render if other user's data isn't loaded yet
-
-      return (
-        <div key={conversation.id} onClick={() => setSelectedConversation(conversation)} className="group backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300 cursor-pointer">
-          <div className="flex items-start space-x-3">
-            <div className="relative">
-              <div className="w-12 h-12 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center">
-                {otherUser.photoURL ? (
-                  <img src={otherUser.photoURL} alt={otherUser.displayName} className="w-full h-full rounded-full object-cover" />
-                ) : (
-                  <span className="text-white font-semibold text-sm">{otherUser.displayName?.charAt(0).toUpperCase()}</span>
-                )}
-              </div>
-              {isOnline && <div className="absolute -bottom-0 -right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between mb-1">
-                <h3 className="font-semibold text-gray-900 text-sm truncate">{otherUser.displayName}</h3>
-                {lastMessage?.timestamp?.toDate && (
-                   <span className="text-xs text-gray-500">
-                    {formatDistanceToNow(lastMessage.timestamp.toDate(), { addSuffix: true, locale: fr })}
-                   </span>
-                )}
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-gray-600 line-clamp-1 flex-1 pr-2">
-                  {lastMessage ? (
-                      <>
-                       {lastMessage.senderId === user.uid && <span className="mr-1">Vous:</span>}
-                       {lastMessage.content}
-                      </>
-                  ) : (
-                      "Commencez la conversation !"
-                  )}
-                </p>
-                <div className="flex items-center space-x-2">
-                  {lastMessage?.senderId === user.uid && (
-                    <Check className="h-4 w-4 text-orange-500" />
-                  )}
-                  {unreadCount > 0 && (
-                    <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs font-medium">{unreadCount}</span>
-                    </div>
-                  )}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowDeleteConfirm(conversation.id);
-                    }}
-                    className="p-1 rounded-full text-gray-400 hover:bg-red-100 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                    aria-label="Supprimer la conversation"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-  }
-
   const filteredUsersToMessage = usersToMessage.filter(u =>
     u.displayName?.toLowerCase().includes(searchUserQuery.toLowerCase()) ||
     u.email?.toLowerCase().includes(searchUserQuery.toLowerCase())
@@ -1504,7 +1430,78 @@ const handleDeleteConversation = async (conversationId: string | null) => {
 
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-28">
                    {filteredConversations.length > 0 ? (
-                      filteredConversations.map(renderConversationListItem)
+                      filteredConversations.map(conversation => {
+                        if (!user || !usersCache) return null;
+      
+                        const otherParticipantId = conversation.participantIds.find((id: string) => id !== user.uid);
+                        if (!otherParticipantId) return null;
+                        
+                        const otherUser = usersCache[otherParticipantId];
+                        const lastMessage = conversation.lastMessage;
+                        const isOnline = presenceCache[otherParticipantId]?.state === 'online';
+                        const unreadCount = conversation.unreadCounts?.[user.uid] || 0;
+                        
+                        if (!otherUser) return null;
+                  
+                        return (
+                          <div key={conversation.id} onClick={() => setSelectedConversation(conversation)} className="group backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300 cursor-pointer">
+                            <div className="flex items-start space-x-3">
+                              <div className="relative">
+                                <div className="w-12 h-12 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center">
+                                  {otherUser.photoURL ? (
+                                    <img src={otherUser.photoURL} alt={otherUser.displayName} className="w-full h-full rounded-full object-cover" />
+                                  ) : (
+                                    <span className="text-white font-semibold text-sm">{otherUser.displayName?.charAt(0).toUpperCase()}</span>
+                                  )}
+                                </div>
+                                {isOnline && <div className="absolute -bottom-0 -right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between mb-1">
+                                  <h3 className="font-semibold text-gray-900 text-sm truncate">{otherUser.displayName}</h3>
+                                  {lastMessage?.timestamp?.toDate && (
+                                     <span className="text-xs text-gray-500">
+                                      {formatDistanceToNow(lastMessage.timestamp.toDate(), { addSuffix: true, locale: fr })}
+                                     </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <p className="text-xs text-gray-600 line-clamp-1 flex-1 pr-2">
+                                    {lastMessage ? (
+                                        <>
+                                         {lastMessage.senderId === user.uid && <span className="mr-1">Vous:</span>}
+                                         {lastMessage.content}
+                                        </>
+                                    ) : (
+                                        "Commencez la conversation !"
+                                    )}
+                                  </p>
+                                  <div className="flex items-center space-x-2">
+                                    {lastMessage?.senderId === user.uid && (
+                                      <Check className="h-4 w-4 text-orange-500" />
+                                    )}
+                                    {unreadCount > 0 && (
+                                      <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                                        <span className="text-white text-xs font-medium">{unreadCount}</span>
+                                      </div>
+                                    )}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowDeleteConfirm(conversation.id);
+                                      }}
+                                      className="p-1 rounded-full text-gray-400 hover:bg-red-100 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      aria-label="Supprimer la conversation"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
                    ) : (
                      <div className="text-center text-gray-500 py-10">
                         <p>Aucune conversation pour le moment.</p>
@@ -1981,5 +1978,5 @@ const handleDeleteConversation = async (conversationId: string | null) => {
 };
 
 export default FicheApp;
-
+    
     
