@@ -1155,7 +1155,13 @@ const handleDeleteConversation = async (conversationId: string | null) => {
   
   const joinedCommunities = communities.filter(c => user && (c.creatorId === user.uid || (c.members && c.members[user.uid])));
   const discoverCommunities = communities.filter(c => !user || (c.creatorId !== user.uid && (!c.members || !c.members[user.uid])));
-  const filteredDiscoverCommunities = discoverCommunities.filter(c => c.name.toLowerCase().includes(communitySearchQuery.toLowerCase()));
+  
+  const filteredJoinedCommunities = joinedCommunities.filter(c => 
+    c.name.toLowerCase().includes(communitySearchQuery.toLowerCase())
+  );
+  const filteredDiscoverCommunities = discoverCommunities.filter(c => 
+    c.name.toLowerCase().includes(communitySearchQuery.toLowerCase())
+  );
 
   const renderCommunityCard = (comm: any) => {
     let status: 'creator' | 'member' | 'joinable' = 'joinable';
@@ -1572,11 +1578,11 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                   </div>
                 ) : (
                   <>
-                    {joinedCommunities.length > 0 && (
+                    {filteredJoinedCommunities.length > 0 && (
                         <div>
                             <h3 className="text-lg font-semibold text-gray-800 mb-4">Mes Communautés</h3>
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                                {joinedCommunities.map(renderCommunityCard)}
+                                {filteredJoinedCommunities.map(renderCommunityCard)}
                             </div>
                         </div>
                     )}
