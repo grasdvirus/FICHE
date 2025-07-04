@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown, Loader2, X, Settings } from 'lucide-react';
+import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown, Loader2, X, Settings, FileEdit } from 'lucide-react';
 import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser, GoogleAuthProvider } from 'firebase/auth';
 import { auth, googleProvider, db, rtdb } from '@/lib/firebase';
 import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, getDoc, updateDoc, arrayUnion, writeBatch, increment, deleteDoc } from 'firebase/firestore';
-import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp, push, runTransaction, query as rtdbQuery, orderByChild } from 'firebase/database';
+import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp, push, runTransaction, query as rtdbQuery, orderByChild, update as rtdbUpdate, remove as rtdbRemove } from 'firebase/database';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { CommunityCard, CreateCommunityCard } from '@/components/community-cards';
@@ -121,7 +121,7 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
   );
 };
 
-const CommunityChatView = ({ user, community, messages, newMessage, setNewMessage, onSendMessage, onBack }: any) => {
+const CommunityChatView = ({ user, community, messages, newMessage, setNewMessage, onSendMessage, onBack, isCreator, onEdit, onDelete }: any) => {
     const messagesEndRef = useRef<null | HTMLDivElement>(null);
   
     const scrollToBottom = () => {
@@ -144,10 +144,29 @@ const CommunityChatView = ({ user, community, messages, newMessage, setNewMessag
                 <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-full flex items-center justify-center mr-3">
                     <span className="text-white font-semibold text-lg">{community.name.charAt(0).toUpperCase()}</span>
                 </div>
-                <div>
+                <div className="flex-1">
                     <h2 className="font-semibold text-gray-900">{community.name}</h2>
                     <p className="text-xs text-gray-500">{community.memberCount} {community.memberCount > 1 ? 'membres' : 'membre'}</p>
                 </div>
+                {isCreator && (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                                <Settings className="h-5 w-5" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={onEdit}>
+                                <FileEdit className="mr-2 h-4 w-4" />
+                                <span>Modifier</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                <span>Supprimer</span>
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                )}
             </div>
   
             {/* Messages Area */}
@@ -215,6 +234,8 @@ const FicheApp = () => {
   const [presenceCache, setPresenceCache] = useState<{[key: string]: any}>({});
   const [searchUserQuery, setSearchUserQuery] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [conversationSearchQuery, setConversationSearchQuery] = useState('');
+  const [messageFilter, setMessageFilter] = useState('all'); // 'all', 'unread'
 
   // TTS states
   const [userTextAudio, setUserTextAudio] = useState<string | null>(null);
@@ -236,6 +257,11 @@ const FicheApp = () => {
   const [communityUnreadCounts, setCommunityUnreadCounts] = useState<{ [key: string]: number }>({});
   const [showLeaveConfirm, setShowLeaveConfirm] = useState<any | null>(null);
   const [communitySearchQuery, setCommunitySearchQuery] = useState('');
+  const [showEditCommunityModal, setShowEditCommunityModal] = useState(false);
+  const [editingCommunity, setEditingCommunity] = useState<any | null>(null);
+  const [showDeleteCommunityConfirm, setShowDeleteCommunityConfirm] = useState<any | null>(null);
+  const [isUpdatingCommunity, setIsUpdatingCommunity] = useState(false);
+
 
   // Settings states
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -895,6 +921,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
             return currentData;
         });
         toast({ title: "Au revoir !", description: `Vous avez quitté la communauté ${community.name}.` });
+        setShowLeaveConfirm(null);
     } catch (error) {
         console.error("Erreur pour quitter la communauté:", error);
         toast({ title: "Erreur", description: "Impossible de quitter la communauté pour le moment.", variant: "destructive" });
@@ -947,6 +974,61 @@ const handleDeleteConversation = async (conversationId: string | null) => {
 
       setSelectedCommunity(community);
   };
+
+  const handleOpenEditCommunityModal = () => {
+    if (!selectedCommunity) return;
+    setEditingCommunity({
+        id: selectedCommunity.id,
+        name: selectedCommunity.name,
+        description: selectedCommunity.description
+    });
+    setShowEditCommunityModal(true);
+  };
+  
+  const handleUpdateCommunity = async () => {
+    if (!editingCommunity) return;
+    setIsUpdatingCommunity(true);
+    const communityRef = rtdbRef(rtdb, `communities/${editingCommunity.id}`);
+    try {
+        await rtdbUpdate(communityRef, {
+            name: editingCommunity.name,
+            description: editingCommunity.description
+        });
+        toast({ title: "Communauté mise à jour", description: "Les informations ont été enregistrées." });
+        setShowEditCommunityModal(false);
+        setEditingCommunity(null);
+        // Refresh selected community data
+        setSelectedCommunity(prev => ({ ...prev, name: editingCommunity.name, description: editingCommunity.description }));
+    } catch (error) {
+        console.error("Error updating community:", error);
+        toast({ title: "Erreur", description: "Impossible de mettre à jour la communauté.", variant: "destructive" });
+    } finally {
+        setIsUpdatingCommunity(false);
+    }
+  };
+  
+  const handleDeleteCommunity = async () => {
+    if (!showDeleteCommunityConfirm) return;
+    const communityId = showDeleteCommunityConfirm.id;
+    const communityRef = rtdbRef(rtdb, `communities/${communityId}`);
+    const messagesRef = rtdbRef(rtdb, `community-messages/${communityId}`);
+    const unreadCountsRef = rtdbRef(rtdb, `community-unread-counts/${communityId}`);
+  
+    try {
+        // Delete all related data
+        await rtdbRemove(communityRef);
+        await rtdbRemove(messagesRef);
+        await rtdbRemove(unreadCountsRef);
+        
+        toast({ title: "Communauté supprimée", description: "La communauté et tous ses messages ont été supprimés." });
+        setSelectedCommunity(null);
+    } catch (error) {
+        console.error("Error deleting community:", error);
+        toast({ title: "Erreur", description: "Impossible de supprimer la communauté.", variant: "destructive" });
+    } finally {
+        setShowDeleteCommunityConfirm(null);
+    }
+  };
   
   const handleThemeChange = (themeName: string) => {
     const theme = THEMES.find(t => t.name === themeName) || THEMES[0];
@@ -978,6 +1060,20 @@ const handleDeleteConversation = async (conversationId: string | null) => {
   const totalUnreadCommunityMessages = Object.values(communityUnreadCounts).reduce((acc, count) => {
       return acc + count;
   }, 0);
+
+  const filteredConversations = conversations
+    .filter(conv => {
+        if (messageFilter === 'unread') {
+            return (conv.unreadCounts?.[user?.uid || ''] || 0) > 0;
+        }
+        return true;
+    })
+    .filter(conv => {
+        if (!conversationSearchQuery.trim()) return true;
+        const otherParticipantId = conv.participantIds.find((id: string) => id !== user?.uid);
+        const otherUser = otherParticipantId ? usersCache[otherParticipantId] : null;
+        return otherUser?.displayName?.toLowerCase().includes(conversationSearchQuery.toLowerCase());
+    });
   
   const renderConversationListItem = (conversation: any) => {
       if (!user || !usersCache) return null;
@@ -1379,28 +1475,30 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     <input 
                       type="text" 
                       placeholder="Rechercher des conversations..."
+                      value={conversationSearchQuery}
+                      onChange={(e) => setConversationSearchQuery(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm shadow-sm"
                     />
                   </div>
                   <div className="flex space-x-2 overflow-x-auto pb-2">
-                    <button className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full text-xs font-medium">
+                    <button onClick={() => setMessageFilter('all')} className={`flex-shrink-0 px-4 py-2 rounded-full text-xs font-medium ${messageFilter === 'all' ? 'bg-primary text-primary-foreground' : 'backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600'}`}>
                       Tous
                     </button>
-                    <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                    <button onClick={() => setMessageFilter('unread')} className={`flex-shrink-0 px-4 py-2 rounded-full text-xs font-medium ${messageFilter === 'unread' ? 'bg-primary text-primary-foreground' : 'backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600'}`}>
                       Non lus
                     </button>
-                    <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                    <button disabled className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium disabled:opacity-50">
                       Favoris
                     </button>
-                    <button className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium">
+                    <button disabled className="flex-shrink-0 px-4 py-2 backdrop-blur-lg bg-white/90 border border-blue-200/50 text-gray-600 rounded-full text-xs font-medium disabled:opacity-50">
                       Groupes
                     </button>
                   </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-28">
-                   {conversations.length > 0 ? (
-                      conversations.map(renderConversationListItem)
+                   {filteredConversations.length > 0 ? (
+                      filteredConversations.map(renderConversationListItem)
                    ) : (
                      <div className="text-center text-gray-500 py-10">
                         <p>Aucune conversation pour le moment.</p>
@@ -1443,6 +1541,9 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     setNewMessage={setNewCommunityMessage}
                     onSendMessage={handleSendCommunityMessage}
                     onBack={() => setSelectedCommunity(null)}
+                    isCreator={user.uid === selectedCommunity.creatorId}
+                    onEdit={handleOpenEditCommunityModal}
+                    onDelete={() => setShowDeleteCommunityConfirm(selectedCommunity)}
                 />
             ) : (
               <div className="h-full overflow-y-auto p-4 md:p-6 space-y-8">
@@ -1693,7 +1794,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogCancel onClick={() => setShowLeaveConfirm(null)}>Annuler</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => { handleLeaveCommunity(showLeaveConfirm); setShowLeaveConfirm(null); }}>Quitter</AlertDialogAction>
+                    <AlertDialogAction onClick={() => handleLeaveCommunity(showLeaveConfirm)}>Quitter</AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
@@ -1803,8 +1904,76 @@ const handleDeleteConversation = async (conversationId: string | null) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+       
+      {/* Edit Community Modal */}
+      {showEditCommunityModal && editingCommunity && (
+        <Dialog open={showEditCommunityModal} onOpenChange={setShowEditCommunityModal}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Modifier la communauté</DialogTitle>
+              <DialogDescription>
+                Mettez à jour les informations de votre communauté.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <label htmlFor="edit-name" className="text-right text-sm font-medium">Nom</label>
+                <Input
+                  id="edit-name"
+                  value={editingCommunity.name}
+                  onChange={(e) => setEditingCommunity({...editingCommunity, name: e.target.value})}
+                  className="col-span-3"
+                  disabled={isUpdatingCommunity}
+                />
+              </div>
+              <div className="grid grid-cols-4 items-start gap-4">
+                <label htmlFor="edit-description" className="text-right text-sm font-medium pt-2">Description</label>
+                <Textarea
+                  id="edit-description"
+                  value={editingCommunity.description}
+                  onChange={(e) => setEditingCommunity({...editingCommunity, description: e.target.value})}
+                  className="col-span-3 min-h-[100px]"
+                  disabled={isUpdatingCommunity}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+               <DialogClose asChild>
+                  <Button type="button" variant="outline" disabled={isUpdatingCommunity}>
+                      Annuler
+                  </Button>
+               </DialogClose>
+              <Button type="submit" onClick={handleUpdateCommunity} disabled={isUpdatingCommunity}>
+                {isUpdatingCommunity && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Enregistrer
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Delete Community Confirmation Dialog */}
+      {showDeleteCommunityConfirm && (
+        <AlertDialog open={!!showDeleteCommunityConfirm} onOpenChange={(isOpen) => !isOpen && setShowDeleteCommunityConfirm(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Supprimer la communauté ?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Cette action est irréversible. La communauté "{showDeleteCommunityConfirm?.name}", ses messages et ses membres seront définitivement supprimés.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setShowDeleteCommunityConfirm(null)}>Annuler</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDeleteCommunity} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Supprimer</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+      )}
+
     </div>
   );
 };
 
 export default FicheApp;
+
+    

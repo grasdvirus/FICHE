@@ -1,3 +1,4 @@
+
 {
   "rules": {
     ".read": false,
@@ -12,7 +13,7 @@
       ".read": "auth != null",
       "$communityId": {
         ".write": "auth != null",
-        ".validate": "newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members'])",
+        ".validate": "(!newData.exists() && data.exists() && data.child('creatorId').val() == auth.uid) || (newData.exists() && newData.hasChildren(['name', 'description', 'creatorId', 'createdAt', 'visibility', 'memberCount', 'members']) && (newData.child('name').val() == data.child('name').val() || (data.exists() && data.child('creatorId').val() == auth.uid)) && (newData.child('description').val() == data.child('description').val() || (data.exists() && data.child('creatorId').val() == auth.uid)))",
         "name": {
           ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 100"
         },
@@ -58,3 +59,5 @@
     }
   }
 }
+
+    
