@@ -235,6 +235,7 @@ const FicheApp = () => {
   const [newCommunityMessage, setNewCommunityMessage] = useState('');
   const [communityUnreadCounts, setCommunityUnreadCounts] = useState<{ [key: string]: number }>({});
   const [showLeaveConfirm, setShowLeaveConfirm] = useState<any | null>(null);
+  const [communitySearchQuery, setCommunitySearchQuery] = useState('');
 
   // Settings states
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -1055,6 +1056,33 @@ const handleDeleteConversation = async (conversationId: string | null) => {
     u.displayName?.toLowerCase().includes(searchUserQuery.toLowerCase()) ||
     u.email?.toLowerCase().includes(searchUserQuery.toLowerCase())
   );
+  
+  const joinedCommunities = communities.filter(c => user && (c.creatorId === user.uid || (c.members && c.members[user.uid])));
+  const discoverCommunities = communities.filter(c => !user || (c.creatorId !== user.uid && (!c.members || !c.members[user.uid])));
+  const filteredDiscoverCommunities = discoverCommunities.filter(c => c.name.toLowerCase().includes(communitySearchQuery.toLowerCase()));
+
+  const renderCommunityCard = (comm: any) => {
+    let status: 'creator' | 'member' | 'joinable' = 'joinable';
+    if (user) {
+        if (comm.creatorId === user.uid) {
+            status = 'creator';
+        } else if (comm.members && comm.members[user.uid]) {
+            status = 'member';
+        }
+    }
+    return (
+      <CommunityCard
+        key={comm.id}
+        name={comm.name}
+        memberCount={comm.memberCount || 0}
+        status={status}
+        unreadCount={communityUnreadCounts[comm.id] || 0}
+        onJoin={() => handleJoinCommunity(comm.id)}
+        onLeave={() => setShowLeaveConfirm(comm)}
+        onClick={() => handleEnterCommunity(comm)}
+      />
+    );
+  };
 
   return (
     <div className="h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 relative flex flex-col">
@@ -1273,11 +1301,16 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                 <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6">
                   <h2 className="text-lg font-bold text-gray-900 mb-4">Actions Rapides</h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <button className="flex items-center p-4 rounded-lg bg-blue-100/50 hover:bg-blue-100 transition-colors">
+                    <button onClick={() => setActiveTab('mail')} className="relative flex items-center p-4 rounded-lg bg-blue-100/50 hover:bg-blue-100 transition-colors">
                       <div className="p-2 bg-blue-200 rounded-lg mr-4">
                         <Mail className="h-5 w-5 text-blue-600" />
                       </div>
                       <span className="font-semibold text-blue-800">E-mail</span>
+                      {totalUnreadDirectMessages > 0 && (
+                        <div className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                            {totalUnreadDirectMessages > 9 ? '9+' : totalUnreadDirectMessages}
+                        </div>
+                      )}
                     </button>
                     <button className="flex items-center p-4 rounded-lg bg-green-100/50 hover:bg-green-100 transition-colors">
                       <div className="p-2 bg-green-200 rounded-lg mr-4">
@@ -1285,11 +1318,16 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                       </div>
                       <span className="font-semibold text-green-800">Document</span>
                     </button>
-                    <button className="flex items-center p-4 rounded-lg bg-purple-100/50 hover:bg-purple-100 transition-colors">
+                    <button onClick={() => setActiveTab('community')} className="relative flex items-center p-4 rounded-lg bg-purple-100/50 hover:bg-purple-100 transition-colors">
                       <div className="p-2 bg-purple-200 rounded-lg mr-4">
                         <Users className="h-5 w-5 text-purple-600" />
                       </div>
                       <span className="font-semibold text-purple-800">Communauté</span>
+                       {totalUnreadCommunityMessages > 0 && (
+                          <div className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                              {totalUnreadCommunityMessages > 9 ? '9+' : totalUnreadCommunityMessages}
+                          </div>
+                      )}
                     </button>
                     <button className="flex items-center p-4 rounded-lg bg-orange-100/50 hover:bg-orange-100 transition-colors">
                       <div className="p-2 bg-orange-200 rounded-lg mr-4">
@@ -1407,12 +1445,22 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     onBack={() => setSelectedCommunity(null)}
                 />
             ) : (
-              <div className="h-full overflow-y-auto p-4 md:p-6">
-                <div className="flex justify-between items-center mb-6">
+              <div className="h-full overflow-y-auto p-4 md:p-6 space-y-8">
+                <div className="flex justify-between items-center">
                   <h2 className="text-2xl font-bold text-gray-900">Communautés</h2>
+                  <div className="w-full max-w-sm">
+                    <Input
+                      type="text"
+                      placeholder="Rechercher une communauté..."
+                      value={communitySearchQuery}
+                      onChange={(e) => setCommunitySearchQuery(e.target.value)}
+                      className="bg-white/80"
+                    />
+                  </div>
                 </div>
+
                 {isLoadingCommunities ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 justify-center py-6">
+                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 justify-center py-6">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <div key={i} className="flex flex-col items-center space-y-3">
                         <Skeleton className="w-32 h-32 rounded-full" />
@@ -1422,31 +1470,24 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     ))}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 justify-center py-6">
-                    <CreateCommunityCard onClick={() => setShowCreateCommunityModal(true)} />
-                    {communities.map((comm) => {
-                      let status: 'creator' | 'member' | 'joinable' = 'joinable';
-                      if (user) {
-                          if (comm.creatorId === user.uid) {
-                              status = 'creator';
-                          } else if (comm.members && comm.members[user.uid]) {
-                              status = 'member';
-                          }
-                      }
-                      return (
-                        <CommunityCard
-                          key={comm.id}
-                          name={comm.name}
-                          memberCount={comm.memberCount || 0}
-                          status={status}
-                          unreadCount={communityUnreadCounts[comm.id] || 0}
-                          onJoin={() => handleJoinCommunity(comm.id)}
-                          onLeave={() => setShowLeaveConfirm(comm)}
-                          onClick={() => handleEnterCommunity(comm)}
-                        />
-                      )
-                    })}
-                  </div>
+                  <>
+                    {joinedCommunities.length > 0 && (
+                        <div>
+                            <h3 className="text-lg font-semibold text-gray-800 mb-4">Mes Communautés</h3>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                                {joinedCommunities.map(renderCommunityCard)}
+                            </div>
+                        </div>
+                    )}
+                    
+                    <div>
+                        <h3 className="text-lg font-semibold text-gray-800 mb-4">Découvrir</h3>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                            <CreateCommunityCard onClick={() => setShowCreateCommunityModal(true)} />
+                            {filteredDiscoverCommunities.map(renderCommunityCard)}
+                        </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}
