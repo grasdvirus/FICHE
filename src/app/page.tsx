@@ -89,7 +89,7 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
                             <p className="text-sm">{msg.content}</p>
                         </div>
                         {msg.senderId === user.uid && (
-                            isReadByOther ? <CheckCheck className="h-4 w-4 text-blue-500" /> : <Check className="h-4 w-4 text-gray-400" />
+                            isReadByOther ? <CheckCheck className="h-4 w-4 text-blue-500" /> : <Check className="h-4 w-4 text-orange-500" />
                         )}
                     </div>
                   )
@@ -154,7 +154,7 @@ const CommunityChatView = ({ user, community, messages, newMessage, setNewMessag
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.map((msg: any) => (
                     <div key={msg.id} className={`flex flex-col gap-1 ${msg.senderId === user.uid ? 'items-end' : 'items-start'}`}>
-                        {msg.senderId !== user.uid && <span className={`text-xs font-semibold ml-3 ${getUserColor(msg.senderId)}`}>{msg.senderName}</span>}
+                        {msg.senderId !== user.uid && <span className={`text-xs font-bold ml-3 ${getUserColor(msg.senderId)}`}>{msg.senderName}</span>}
                         <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-primary text-primary-foreground' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
                             <p className="text-sm">{msg.content}</p>
                         </div>
@@ -234,6 +234,7 @@ const FicheApp = () => {
   const [communityMessages, setCommunityMessages] = useState<any[]>([]);
   const [newCommunityMessage, setNewCommunityMessage] = useState('');
   const [communityUnreadCounts, setCommunityUnreadCounts] = useState<{ [key: string]: number }>({});
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState<any | null>(null);
 
   // Settings states
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -875,7 +876,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
   };
 
   const handleLeaveCommunity = async (community: any) => {
-    if (!user) return;
+    if (!user || !community) return;
     if (user.uid === community.creatorId) {
         toast({ title: "Action non autorisée", description: "Le créateur ne peut pas quitter sa propre communauté.", variant: "destructive"});
         return;
@@ -990,8 +991,6 @@ const handleDeleteConversation = async (conversationId: string | null) => {
       
       if (!otherUser) return null; // Don't render if other user's data isn't loaded yet
 
-      const isLastMessageReadByOther = lastMessage && lastMessage.senderId === user.uid && conversation.readBy?.includes(otherParticipantId);
-
       return (
         <div key={conversation.id} onClick={() => setSelectedConversation(conversation)} className="group backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 active:bg-blue-50 transition-all duration-300 cursor-pointer">
           <div className="flex items-start space-x-3">
@@ -1027,7 +1026,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                 </p>
                 <div className="flex items-center space-x-2">
                   {lastMessage?.senderId === user.uid && (
-                    isLastMessageReadByOther ? <CheckCheck className="h-4 w-4 text-blue-500" /> : <Check className="h-4 w-4 text-gray-400" />
+                    <Check className="h-4 w-4 text-orange-500" />
                   )}
                   {unreadCount > 0 && (
                     <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
@@ -1214,9 +1213,9 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                 </div>
               </div>
             </div>
-
-            {/* AI Results */}
-            {analysisResult && (
+            
+            {/* AI Results or Quick Actions */}
+            {analysisResult ? (
               <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-4 animate-in slide-in-from-bottom duration-500 space-y-4">
                 <div>
                   <div className="flex items-center justify-between space-x-2 mb-2">
@@ -1270,6 +1269,36 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                   </AccordionItem>
                 </Accordion>
               </div>
+            ) : (
+                <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6">
+                  <h2 className="text-lg font-bold text-gray-900 mb-4">Actions Rapides</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <button className="flex items-center p-4 rounded-lg bg-blue-100/50 hover:bg-blue-100 transition-colors">
+                      <div className="p-2 bg-blue-200 rounded-lg mr-4">
+                        <Mail className="h-5 w-5 text-blue-600" />
+                      </div>
+                      <span className="font-semibold text-blue-800">E-mail</span>
+                    </button>
+                    <button className="flex items-center p-4 rounded-lg bg-green-100/50 hover:bg-green-100 transition-colors">
+                      <div className="p-2 bg-green-200 rounded-lg mr-4">
+                        <FileText className="h-5 w-5 text-green-600" />
+                      </div>
+                      <span className="font-semibold text-green-800">Document</span>
+                    </button>
+                    <button className="flex items-center p-4 rounded-lg bg-purple-100/50 hover:bg-purple-100 transition-colors">
+                      <div className="p-2 bg-purple-200 rounded-lg mr-4">
+                        <Users className="h-5 w-5 text-purple-600" />
+                      </div>
+                      <span className="font-semibold text-purple-800">Communauté</span>
+                    </button>
+                    <button className="flex items-center p-4 rounded-lg bg-orange-100/50 hover:bg-orange-100 transition-colors">
+                      <div className="p-2 bg-orange-200 rounded-lg mr-4">
+                        <Send className="h-5 w-5 text-orange-600" />
+                      </div>
+                      <span className="font-semibold text-orange-800">Partager</span>
+                    </button>
+                  </div>
+                </div>
             )}
           </div>
         )}
@@ -1412,7 +1441,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                           status={status}
                           unreadCount={communityUnreadCounts[comm.id] || 0}
                           onJoin={() => handleJoinCommunity(comm.id)}
-                          onLeave={() => handleLeaveCommunity(comm)}
+                          onLeave={() => setShowLeaveConfirm(comm)}
                           onClick={() => handleEnterCommunity(comm)}
                         />
                       )
@@ -1606,6 +1635,24 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                 <AlertDialogFooter>
                     <AlertDialogCancel onClick={() => setShowDeleteConfirm(null)}>Annuler</AlertDialogCancel>
                     <AlertDialogAction onClick={() => handleDeleteConversation(showDeleteConfirm)}>Supprimer</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+      )}
+
+      {/* Leave Community Confirmation Dialog */}
+      {showLeaveConfirm && (
+        <AlertDialog open={!!showLeaveConfirm} onOpenChange={(isOpen) => !isOpen && setShowLeaveConfirm(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Quitter la communauté ?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Êtes-vous sûr de vouloir quitter la communauté "{showLeaveConfirm?.name}" ? Vous ne pourrez plus participer aux discussions.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setShowLeaveConfirm(null)}>Annuler</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => { handleLeaveCommunity(showLeaveConfirm); setShowLeaveConfirm(null); }}>Quitter</AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

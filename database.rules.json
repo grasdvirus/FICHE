@@ -29,11 +29,11 @@
           ".validate": "newData.isNumber() && ((!data.exists()) || (data.exists() && newData.val() == data.val()))"
         },
         "memberCount": {
-          ".validate": "newData.isNumber() && ((!data.exists() && newData.val() == 1) || (data.exists() && newData.val() >= data.val()))"
+          ".validate": "newData.isNumber() && ((!data.exists() && newData.val() == 1) || (data.exists() && (newData.val() == data.val() + 1 || newData.val() == data.val() - 1)))"
         },
         "members": {
           "$uid": {
-            ".validate": "newData.hasChildren(['joinedAt']) && newData.child('joinedAt').isNumber() && ((!data.exists() && auth.uid == $uid) || data.exists())"
+            ".validate": "(newData.exists() && newData.hasChildren(['joinedAt']) && newData.child('joinedAt').isNumber()) || (!newData.exists() && data.exists())"
           }
         }
       }
