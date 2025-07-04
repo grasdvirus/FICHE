@@ -1,24 +1,35 @@
 
 'use client';
 
-import { Plus, UserCheck, Crown } from "lucide-react";
+import { Plus, UserCheck, Crown, X } from "lucide-react";
 
-export const CommunityCard = ({ name, memberCount, onJoin, onClick, status = 'joinable', unreadCount = 0 }: {
+export const CommunityCard = ({ name, memberCount, onJoin, onLeave, onClick, status = 'joinable', unreadCount = 0 }: {
   name: string;
   memberCount: number;
   onJoin?: () => void;
+  onLeave?: () => void;
   onClick?: () => void;
   status?: 'joinable' | 'member' | 'creator';
   unreadCount?: number;
 }) => {
   const isMemberOrCreator = status === 'member' || status === 'creator';
+
+  const handleActionClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (status === 'joinable' && onJoin) {
+        onJoin();
+    } else if (status === 'member' && onLeave) {
+        onLeave();
+    }
+  }
+
   return (
     <div 
-      className="flex flex-col items-center space-y-2 text-center"
+      className="flex flex-col items-center space-y-2 text-center group"
       onClick={isMemberOrCreator ? onClick : undefined}
     >
       <div
-        className={`relative w-28 h-28 md:w-32 md:h-32 group ${isMemberOrCreator ? 'cursor-pointer' : ''}`}
+        className={`relative w-28 h-28 md:w-32 md:h-32 ${isMemberOrCreator ? 'cursor-pointer' : ''}`}
       >
         <div className="absolute inset-0 rounded-full bg-gradient-to-br from-purple-500 via-indigo-500 to-blue-600 shadow-xl group-hover:rotate-2 transition-all duration-300"></div>
         <div className="absolute inset-1 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center text-center shadow-inner">
@@ -33,7 +44,7 @@ export const CommunityCard = ({ name, memberCount, onJoin, onClick, status = 'jo
         
         {status === 'joinable' && (
           <button
-            onClick={onJoin}
+            onClick={handleActionClick}
             className="absolute bottom-0 right-0 bg-blue-500 text-white rounded-full p-2 border-4 border-white hover:bg-blue-600 transition-colors shadow-md transform hover:scale-110"
             aria-label="Rejoindre la communauté"
           >
@@ -41,9 +52,13 @@ export const CommunityCard = ({ name, memberCount, onJoin, onClick, status = 'jo
           </button>
         )}
         {status === 'member' && (
-          <div className="absolute bottom-0 right-0 bg-green-500 text-white rounded-full p-2 border-4 border-white shadow-md">
-            <UserCheck className="w-4 h-4" />
-          </div>
+          <button
+            onClick={handleActionClick}
+            className="absolute bottom-0 right-0 bg-red-500 text-white rounded-full p-2 border-4 border-white hover:bg-red-600 transition-colors shadow-md transform hover:scale-110"
+            aria-label="Quitter la communauté"
+          >
+            <X className="w-4 h-4" />
+          </button>
         )}
         {status === 'creator' && (
            <div className="absolute bottom-0 right-0 bg-yellow-500 text-white rounded-full p-2 border-4 border-white shadow-md">

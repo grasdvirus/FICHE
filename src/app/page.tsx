@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown, Loader2 } from 'lucide-react';
+import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown, Loader2, X, Settings } from 'lucide-react';
 import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
@@ -23,10 +23,31 @@ import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp 
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { CommunityCard, CreateCommunityCard } from '@/components/community-cards';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 // Helper to get a consistent conversation ID
 const getConversationId = (uid1: string, uid2: string) => {
   return uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
+};
+
+const USER_COLORS = [
+    'text-red-500', 'text-green-500', 'text-blue-500', 'text-yellow-500', 
+    'text-purple-500', 'text-pink-500', 'text-indigo-500', 'text-teal-500'
+];
+
+const THEMES = [
+    { name: 'default', primary: '116 12% 51%', ring: '116 12% 51%' },
+    { name: 'rose', primary: '346.8 77.2% 49.8%', ring: '346.8 77.2% 49.8%' },
+    { name: 'orange', primary: '24.6 95% 53.1%', ring: '24.6 95% 53.1%' },
+    { name: 'green', primary: '142.1 76.2% 36.3%', ring: '142.1 76.2% 36.3%' },
+    { name: 'blue', primary: '221.2 83.2% 53.3%', ring: '221.2 83.2% 53.3%' },
+];
+
+const getUserColor = (userId: string) => {
+    if (!userId) return USER_COLORS[0];
+    const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return USER_COLORS[hash % USER_COLORS.length];
 };
 
 const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNewMessage, onSendMessage, onBack }: any) => {
@@ -64,7 +85,7 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
                   const isReadByOther = msg.readBy?.includes(otherParticipantId);
                   return (
                     <div key={msg.id} className={`flex items-end gap-2 ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-blue-500 text-white rounded-br-none' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
+                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-primary text-primary-foreground' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
                             <p className="text-sm">{msg.content}</p>
                         </div>
                         {msg.senderId === user.uid && (
@@ -85,7 +106,7 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
                       onChange={(e) => setNewMessage(e.target.value)}
                       onKeyPress={(e) => e.key === 'Enter' && onSendMessage()}
                       placeholder="Écrivez un message..."
-                      className="flex-1 w-full p-3 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
+                      className="flex-1 w-full p-3 border-2 border-input rounded-xl focus:border-primary focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
                   />
                   <button 
                       onClick={onSendMessage}
@@ -133,8 +154,8 @@ const CommunityChatView = ({ user, community, messages, newMessage, setNewMessag
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.map((msg: any) => (
                     <div key={msg.id} className={`flex flex-col gap-1 ${msg.senderId === user.uid ? 'items-end' : 'items-start'}`}>
-                        {msg.senderId !== user.uid && <span className="text-xs text-gray-500 ml-3">{msg.senderName}</span>}
-                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-indigo-500 text-white rounded-br-none' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
+                        {msg.senderId !== user.uid && <span className={`text-xs font-semibold ml-3 ${getUserColor(msg.senderId)}`}>{msg.senderName}</span>}
+                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-primary text-primary-foreground' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
                             <p className="text-sm">{msg.content}</p>
                         </div>
                     </div>
@@ -151,7 +172,7 @@ const CommunityChatView = ({ user, community, messages, newMessage, setNewMessag
                         onChange={(e) => setNewMessage(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && onSendMessage()}
                         placeholder="Écrivez un message dans la communauté..."
-                        className="flex-1 w-full p-3 border-2 border-purple-200/50 rounded-xl focus:border-purple-500 focus:outline-none bg-purple-50/30 backdrop-blur-sm text-sm"
+                        className="flex-1 w-full p-3 border-2 border-input rounded-xl focus:border-primary focus:outline-none bg-purple-50/30 backdrop-blur-sm text-sm"
                     />
                     <button 
                         onClick={onSendMessage}
@@ -214,6 +235,20 @@ const FicheApp = () => {
   const [newCommunityMessage, setNewCommunityMessage] = useState('');
   const [communityUnreadCounts, setCommunityUnreadCounts] = useState<{ [key: string]: number }>({});
 
+  // Settings states
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState('default');
+  const [profileVisibility, setProfileVisibility] = useState(true);
+
+
+  // Apply theme from localStorage on initial load
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('app-theme') || 'default';
+    const theme = THEMES.find(t => t.name === savedTheme) || THEMES[0];
+    setCurrentTheme(savedTheme);
+    document.documentElement.style.setProperty('--primary', theme.primary);
+    document.documentElement.style.setProperty('--ring', theme.ring);
+  }, []);
 
   // Fetch user data and cache it
   const fetchUsersData = async (userIds: string[]) => {
@@ -362,6 +397,8 @@ const FicheApp = () => {
               isVerified: currentUser.emailVerified,
               visibility: "public",
             });
+          } else {
+             setProfileVisibility(userSnap.data().visibility === 'public');
           }
         } catch (error: any) {
           console.error("Erreur de synchronisation de l'utilisateur:", error);
@@ -837,6 +874,31 @@ const handleDeleteConversation = async (conversationId: string | null) => {
     }
   };
 
+  const handleLeaveCommunity = async (community: any) => {
+    if (!user) return;
+    if (user.uid === community.creatorId) {
+        toast({ title: "Action non autorisée", description: "Le créateur ne peut pas quitter sa propre communauté.", variant: "destructive"});
+        return;
+    }
+
+    const communityRef = rtdbRef(rtdb, `communities/${community.id}`);
+    try {
+        await runTransaction(communityRef, (currentData) => {
+            if (currentData) {
+                if (currentData.members && currentData.members[user.uid]) {
+                    currentData.memberCount = (currentData.memberCount || 1) - 1;
+                    currentData.members[user.uid] = null;
+                }
+            }
+            return currentData;
+        });
+        toast({ title: "Au revoir !", description: `Vous avez quitté la communauté ${community.name}.` });
+    } catch (error) {
+        console.error("Erreur pour quitter la communauté:", error);
+        toast({ title: "Erreur", description: "Impossible de quitter la communauté pour le moment.", variant: "destructive" });
+    }
+  };
+
   const handleSendCommunityMessage = async () => {
       if (!newCommunityMessage.trim() || !user || !selectedCommunity?.id) return;
   
@@ -884,6 +946,29 @@ const handleDeleteConversation = async (conversationId: string | null) => {
       setSelectedCommunity(community);
   };
   
+  const handleThemeChange = (themeName: string) => {
+    const theme = THEMES.find(t => t.name === themeName) || THEMES[0];
+    document.documentElement.style.setProperty('--primary', theme.primary);
+    document.documentElement.style.setProperty('--ring', theme.ring);
+    localStorage.setItem('app-theme', themeName);
+    setCurrentTheme(themeName);
+  }
+
+  const handleVisibilityChange = async (checked: boolean) => {
+    if (!user) return;
+    const newVisibility = checked ? 'public' : 'private';
+    setProfileVisibility(checked);
+    const userRef = doc(db, "users", user.uid);
+    try {
+        await updateDoc(userRef, { visibility: newVisibility });
+        toast({ title: 'Visibilité mise à jour', description: `Votre profil est maintenant ${newVisibility}.`});
+    } catch (error) {
+        console.error("Error updating visibility:", error);
+        toast({ title: 'Erreur', description: 'Impossible de mettre à jour la visibilité.', variant: 'destructive'});
+        setProfileVisibility(!checked); // Revert on error
+    }
+  }
+
   const totalUnreadDirectMessages = conversations.reduce((acc, conv) => {
       return acc + (conv.unreadCounts?.[user?.uid || ''] || 0);
   }, 0);
@@ -1014,6 +1099,10 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                       </div>
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setShowSettingsModal(true)} className="cursor-pointer">
+                      <Settings className="mr-2 h-4 w-4" />
+                      <span>Paramètres</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
                       <LogOut className="mr-2 h-4 w-4" />
                       <span>Déconnexion</span>
@@ -1323,6 +1412,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                           status={status}
                           unreadCount={communityUnreadCounts[comm.id] || 0}
                           onJoin={() => handleJoinCommunity(comm.id)}
+                          onLeave={() => handleLeaveCommunity(comm)}
                           onClick={() => handleEnterCommunity(comm)}
                         />
                       )
@@ -1351,14 +1441,14 @@ const handleDeleteConversation = async (conversationId: string | null) => {
       <nav className="backdrop-blur-md bg-white/90 border-t border-blue-200/50 shadow-lg z-20">
         <div className="flex justify-around items-center py-2">
           <button 
-            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'editor' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
+            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'editor' ? 'text-primary bg-primary/10' : 'text-gray-500'}`}
             onClick={() => { setActiveTab('editor'); setSelectedConversation(null); setSelectedCommunity(null); }}
           >
             <Home className="h-5 w-5 mb-1" />
             <span className="text-xs font-medium">Accueil</span>
           </button>
           <button 
-            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'mail' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
+            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'mail' ? 'text-primary bg-primary/10' : 'text-gray-500'}`}
             onClick={() => { setActiveTab('mail'); setSelectedCommunity(null); }}
           >
             <MessageCircle className="h-5 w-5 mb-1" />
@@ -1370,7 +1460,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
             )}
           </button>
           <button 
-            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'community' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
+            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'community' ? 'text-primary bg-primary/10' : 'text-gray-500'}`}
             onClick={() => { setActiveTab('community'); setSelectedConversation(null); }}
           >
             <Users className="h-5 w-5 mb-1" />
@@ -1382,7 +1472,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
             )}
           </button>
           <button 
-            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'ia' ? 'text-blue-600 bg-blue-50' : 'text-gray-500'}`}
+            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'ia' ? 'text-primary bg-primary/10' : 'text-gray-500'}`}
             onClick={() => { setActiveTab('ia'); setSelectedConversation(null); setSelectedCommunity(null); }}
           >
             <Bot className="h-5 w-5 mb-1" />
@@ -1408,7 +1498,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={isAuthLoading}
-                  className="w-full p-4 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
+                  className="w-full p-4 border-2 border-blue-200/50 rounded-xl focus:border-primary focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
                 />
                 <input 
                   type="password" 
@@ -1416,7 +1506,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isAuthLoading}
-                  className="w-full p-4 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
+                  className="w-full p-4 border-2 border-blue-200/50 rounded-xl focus:border-primary focus:outline-none bg-blue-50/30 backdrop-blur-sm text-sm"
                 />
               </div>
               <div className="space-y-3">
@@ -1520,6 +1610,46 @@ const handleDeleteConversation = async (conversationId: string | null) => {
             </AlertDialogContent>
         </AlertDialog>
       )}
+
+      {/* Settings Modal */}
+      <Dialog open={showSettingsModal} onOpenChange={setShowSettingsModal}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Paramètres</DialogTitle>
+            <DialogDescription>
+              Personnalisez votre expérience.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-6 py-4">
+            <div className="space-y-3">
+                <Label>Thème de l'application</Label>
+                <div className="flex items-center gap-2">
+                    {THEMES.map(theme => (
+                        <button key={theme.name} onClick={() => handleThemeChange(theme.name)} className={`w-8 h-8 rounded-full border-2 ${currentTheme === theme.name ? 'border-ring' : 'border-transparent'}`} style={{ backgroundColor: `hsl(${theme.primary})`}}/>
+                    ))}
+                </div>
+            </div>
+            <div className="flex items-center space-x-2">
+                <Switch id="visibility-mode" checked={profileVisibility} onCheckedChange={handleVisibilityChange} />
+                <Label htmlFor="visibility-mode">Profil public</Label>
+            </div>
+             <div className="space-y-3">
+                <Label>Gestion du compte</Label>
+                <Button variant="outline" onClick={() => { handleResetAI(); setShowSettingsModal(false); }}>
+                    <Trash2 className="mr-2 h-4 w-4"/>
+                    Supprimer l'historique IA
+                </Button>
+            </div>
+          </div>
+          <DialogFooter>
+             <DialogClose asChild>
+                <Button type="button">
+                    Fermer
+                </Button>
+             </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Community Modal */}
       <Dialog open={showCreateCommunityModal} onOpenChange={setShowCreateCommunityModal}>
