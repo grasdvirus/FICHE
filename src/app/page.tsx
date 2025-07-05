@@ -80,7 +80,7 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
           </div>
 
           {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-hover">
               {messages.map((msg: any) => {
                   const isReadByOther = msg.readBy?.includes(otherParticipantId);
                   return (
@@ -170,7 +170,7 @@ const CommunityChatView = ({ user, community, messages, newMessage, setNewMessag
             </div>
   
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-hover">
                 {messages.map((msg: any) => (
                     <div key={msg.id} className={`flex flex-col gap-1 ${msg.senderId === user.uid ? 'items-end' : 'items-start'}`}>
                         {msg.senderId !== user.uid && <span className={`text-xs font-bold ml-3 ${getUserColor(msg.senderId)}`}>{msg.senderName}</span>}
@@ -272,6 +272,7 @@ const FicheApp = () => {
   const notificationSoundRef = useRef<HTMLAudioElement | null>(null);
   const prevTotalUnreadDirectMessages = useRef(0);
   const prevTotalUnreadCommunityMessages = useRef(0);
+  const isInitialLoad = useRef(true);
 
   // Apply theme from localStorage on initial load
   useEffect(() => {
@@ -440,6 +441,8 @@ const FicheApp = () => {
             variant: "destructive",
           });
         }
+      } else {
+        isInitialLoad.current = true; // Reset on logout
       }
     });
     return () => unsubscribe();
@@ -1063,21 +1066,31 @@ const handleDeleteConversation = async (conversationId: string | null) => {
       return acc + count;
   }, 0);
 
-  // Sound notification for new direct messages
+  // Sound notification for new messages
   useEffect(() => {
-    if (user && totalUnreadDirectMessages > prevTotalUnreadDirectMessages.current) {
-      notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
-    }
-    prevTotalUnreadDirectMessages.current = totalUnreadDirectMessages;
-  }, [totalUnreadDirectMessages, user]);
+    if (user) {
+      // Prevent sound on initial load
+      if (isInitialLoad.current) {
+        prevTotalUnreadDirectMessages.current = totalUnreadDirectMessages;
+        prevTotalUnreadCommunityMessages.current = totalUnreadCommunityMessages;
+        isInitialLoad.current = false;
+        return;
+      }
 
-  // Sound notification for new community messages
-  useEffect(() => {
-    if (user && totalUnreadCommunityMessages > prevTotalUnreadCommunityMessages.current) {
-      notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
+      // Play sound for direct messages
+      if (totalUnreadDirectMessages > prevTotalUnreadDirectMessages.current) {
+        notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
+      }
+      prevTotalUnreadDirectMessages.current = totalUnreadDirectMessages;
+
+      // Play sound for community messages
+      if (totalUnreadCommunityMessages > prevTotalUnreadCommunityMessages.current) {
+        notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
+      }
+      prevTotalUnreadCommunityMessages.current = totalUnreadCommunityMessages;
     }
-    prevTotalUnreadCommunityMessages.current = totalUnreadCommunityMessages;
-  }, [totalUnreadCommunityMessages, user]);
+  }, [totalUnreadDirectMessages, totalUnreadCommunityMessages, user]);
+
 
   const filteredConversations = conversations
     .filter(conv => {
@@ -1202,7 +1215,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
       {/* Main Content */}
       <main className="relative z-10 flex-1 overflow-hidden">
         {activeTab === 'editor' && (
-          <div className="h-full overflow-y-auto px-4 py-6 space-y-6">
+          <div className="h-full overflow-y-auto px-4 py-6 space-y-6 scroll-hover">
             {/* Hero Card */}
             <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
               <div className="inline-flex items-center space-x-2 bg-blue-100 rounded-full px-3 py-1 text-blue-700 text-xs font-medium mb-3">
@@ -1450,7 +1463,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-28">
+                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-28 scroll-hover">
                    {filteredConversations.length > 0 ? (
                       filteredConversations.map(conversation => {
                         if (!user || !usersCache) return null;
@@ -1571,7 +1584,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     onDelete={() => setShowDeleteCommunityConfirm(selectedCommunity)}
                 />
             ) : (
-              <div className="h-full overflow-y-auto p-4 md:p-6 space-y-8">
+              <div className="h-full overflow-y-auto p-4 md:p-6 space-y-8 scroll-hover">
                 <div className="flex justify-between items-center">
                   <h2 className="text-2xl font-bold text-gray-900">Communautés</h2>
                   <div className="w-full max-w-sm">
@@ -1621,7 +1634,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
         )}
 
         {activeTab === 'ia' && (
-          <div className="h-full overflow-y-auto px-4 py-6">
+          <div className="h-full overflow-y-auto px-4 py-6 scroll-hover">
             <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
               <div className="w-16 h-16 bg-gradient-to-r from-teal-500 to-cyan-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <Bot className="h-8 w-8 text-white" />
@@ -1763,7 +1776,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                         className="w-full bg-transparent focus:outline-none text-sm"
                     />
                 </div>
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-y-auto scroll-hover">
                     {filteredUsersToMessage.length > 0 ? (
                         filteredUsersToMessage.map(u => (
                             <div key={u.id} onClick={() => handleStartConversation(u)} className="flex items-center p-4 space-x-3 hover:bg-gray-100 cursor-pointer">
