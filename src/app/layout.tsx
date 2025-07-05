@@ -3,10 +3,10 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: 'Fiche AI Assistant',
+  title: 'FICHE AI VEX',
   description: 'Votre assistant IA intelligent',
   icons: {
-    icon: '/favicon.ico',
+    icon: '/favico.png',
   },
 };
 
