@@ -273,11 +273,6 @@ const FicheApp = () => {
   const prevMessagesCount = useRef(0);
   const prevCommunityMessagesCount = useRef(0);
 
-  // Initialize notification sound
-  useEffect(() => {
-    notificationSoundRef.current = new Audio('/sons.wav');
-  }, []);
-
   // Apply theme from localStorage on initial load
   useEffect(() => {
     const savedTheme = localStorage.getItem('app-theme') || 'default';
@@ -1155,6 +1150,9 @@ const handleDeleteConversation = async (conversationId: string | null) => {
       <div className="absolute inset-0 bg-gradient-to-r from-blue-200/20 to-indigo-200/20 blur-3xl"></div>
       <div className="absolute top-10 left-1/4 w-64 h-64 bg-blue-300/10 rounded-full blur-3xl animate-pulse"></div>
       <div className="absolute bottom-20 right-1/4 w-48 h-48 bg-indigo-300/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+
+      {/* Audio Element for Notifications */}
+      <audio ref={notificationSoundRef} src="/sons.wav" preload="auto" className="hidden" />
 
       {/* Header */}
       <header className="relative z-10 backdrop-blur-md bg-white/90 border-b border-blue-200/50 shadow-lg">
