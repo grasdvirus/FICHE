@@ -273,6 +273,7 @@ const FicheApp = () => {
   const prevTotalUnreadDirectMessages = useRef(0);
   const prevTotalUnreadCommunityMessages = useRef(0);
   const isInitialLoad = useRef(true);
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
 
   // Apply theme from localStorage on initial load
   useEffect(() => {
@@ -1066,6 +1067,26 @@ const handleDeleteConversation = async (conversationId: string | null) => {
       return acc + count;
   }, 0);
 
+  // Unlock audio on first user interaction to comply with browser autoplay policies
+  useEffect(() => {
+    const unlockAudio = () => {
+        setIsAudioUnlocked(true);
+        // This listener is only needed once
+        window.removeEventListener('click', unlockAudio);
+        window.removeEventListener('keydown', unlockAudio);
+    };
+
+    // Attach listeners
+    window.addEventListener('click', unlockAudio);
+    window.addEventListener('keydown', unlockAudio);
+
+    // Cleanup
+    return () => {
+        window.removeEventListener('click', unlockAudio);
+        window.removeEventListener('keydown', unlockAudio);
+    };
+  }, []);
+
   // Sound notification for new messages
   useEffect(() => {
     if (user) {
@@ -1077,19 +1098,18 @@ const handleDeleteConversation = async (conversationId: string | null) => {
         return;
       }
 
-      // Play sound for direct messages
-      if (totalUnreadDirectMessages > prevTotalUnreadDirectMessages.current) {
-        notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
-      }
-      prevTotalUnreadDirectMessages.current = totalUnreadDirectMessages;
+      const hasNewDirectMessage = totalUnreadDirectMessages > prevTotalUnreadDirectMessages.current;
+      const hasNewCommunityMessage = totalUnreadCommunityMessages > prevTotalUnreadCommunityMessages.current;
 
-      // Play sound for community messages
-      if (totalUnreadCommunityMessages > prevTotalUnreadCommunityMessages.current) {
+      if ((hasNewDirectMessage || hasNewCommunityMessage) && isAudioUnlocked) {
         notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
       }
+
+      // Always update the previous counts to prevent a backlog of sounds
+      prevTotalUnreadDirectMessages.current = totalUnreadDirectMessages;
       prevTotalUnreadCommunityMessages.current = totalUnreadCommunityMessages;
     }
-  }, [totalUnreadDirectMessages, totalUnreadCommunityMessages, user]);
+  }, [totalUnreadDirectMessages, totalUnreadCommunityMessages, user, isAudioUnlocked]);
 
 
   const filteredConversations = conversations
@@ -1602,7 +1622,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6 justify-center py-6">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <div key={i} className="flex flex-col items-center space-y-3">
-                        <Skeleton className="w-32 h-32 rounded-full" />
+                        <Skeleton className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full" />
                         <Skeleton className="h-4 w-24" />
                         <Skeleton className="h-3 w-16" />
                       </div>
