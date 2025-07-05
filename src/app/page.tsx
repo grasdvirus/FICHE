@@ -86,7 +86,7 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
                   return (
                     <div key={msg.id} className={`flex items-end gap-2 ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}>
                         <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-primary text-primary-foreground' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
-                            <p className="text-sm">{msg.content}</p>
+                            <p className="text-sm break-words">{msg.content}</p>
                         </div>
                         {msg.senderId === user.uid && (
                             isReadByOther ? <CheckCheck className="h-4 w-4 text-blue-500" /> : <Check className="h-4 w-4 text-orange-500" />
@@ -175,7 +175,7 @@ const CommunityChatView = ({ user, community, messages, newMessage, setNewMessag
                     <div key={msg.id} className={`flex flex-col gap-1 ${msg.senderId === user.uid ? 'items-end' : 'items-start'}`}>
                         {msg.senderId !== user.uid && <span className={`text-xs font-bold ml-3 ${getUserColor(msg.senderId)}`}>{msg.senderName}</span>}
                         <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-primary text-primary-foreground' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
-                            <p className="text-sm">{msg.content}</p>
+                            <p className="text-sm break-words">{msg.content}</p>
                         </div>
                     </div>
                 ))}
