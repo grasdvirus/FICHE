@@ -270,8 +270,8 @@ const FicheApp = () => {
 
   // Notification sound
   const notificationSoundRef = useRef<HTMLAudioElement | null>(null);
-  const prevMessagesCount = useRef(0);
-  const prevCommunityMessagesCount = useRef(0);
+  const prevTotalUnreadDirectMessages = useRef(0);
+  const prevTotalUnreadCommunityMessages = useRef(0);
 
   // Apply theme from localStorage on initial load
   useEffect(() => {
@@ -356,30 +356,15 @@ const FicheApp = () => {
   useEffect(() => {
     if (!selectedConversation?.id) {
         setMessages([]);
-        prevMessagesCount.current = 0;
         return;
     }
 
     const messagesRef = collection(db, "conversations", selectedConversation.id, "messages");
     const q = query(messagesRef, orderBy("timestamp", "asc"));
     
-    let isFirstLoad = true;
-
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const msgs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        // Play notification sound for new incoming messages after initial load
-        if (!isFirstLoad && msgs.length > prevMessagesCount.current) {
-            const lastMessage = msgs[msgs.length - 1];
-            if (lastMessage && lastMessage.senderId !== user?.uid) {
-                notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
-            }
-        }
-        
         setMessages(msgs);
-        prevMessagesCount.current = msgs.length;
-        isFirstLoad = false;
-
     }, (error: any) => {
         console.error("Erreur d'écoute des messages: ", error);
     });
@@ -491,33 +476,19 @@ const FicheApp = () => {
     useEffect(() => {
         if (!selectedCommunity?.id) {
             setCommunityMessages([]);
-            prevCommunityMessagesCount.current = 0;
             return;
         }
 
         const messagesRef = rtdbRef(rtdb, `community-messages/${selectedCommunity.id}`);
         const q = rtdbQuery(messagesRef, orderByChild('timestamp'));
         
-        let isFirstLoad = true;
-
         const unsubscribe = onValue(q, (snapshot) => {
             const data = snapshot.val();
             let msgs: any[] = [];
             if (data) {
                 msgs = Object.keys(data).map(key => ({ id: key, ...data[key] }));
             }
-            
-            // Play notification sound for new incoming community messages after initial load
-            if (!isFirstLoad && msgs.length > prevCommunityMessagesCount.current) {
-                const lastMessage = msgs[msgs.length - 1];
-                if (lastMessage && lastMessage.senderId !== user?.uid) {
-                     notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
-                }
-            }
-
             setCommunityMessages(msgs);
-            prevCommunityMessagesCount.current = msgs.length;
-            isFirstLoad = false;
         });
 
         return () => unsubscribe();
@@ -1091,6 +1062,22 @@ const handleDeleteConversation = async (conversationId: string | null) => {
   const totalUnreadCommunityMessages = Object.values(communityUnreadCounts).reduce((acc, count) => {
       return acc + count;
   }, 0);
+
+  // Sound notification for new direct messages
+  useEffect(() => {
+    if (user && totalUnreadDirectMessages > prevTotalUnreadDirectMessages.current) {
+      notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
+    }
+    prevTotalUnreadDirectMessages.current = totalUnreadDirectMessages;
+  }, [totalUnreadDirectMessages, user]);
+
+  // Sound notification for new community messages
+  useEffect(() => {
+    if (user && totalUnreadCommunityMessages > prevTotalUnreadCommunityMessages.current) {
+      notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
+    }
+    prevTotalUnreadCommunityMessages.current = totalUnreadCommunityMessages;
+  }, [totalUnreadCommunityMessages, user]);
 
   const filteredConversations = conversations
     .filter(conv => {
