@@ -70,11 +70,11 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
       <div className="h-full flex flex-col">
           {/* Header */}
           <div className="flex items-center p-4 border-b border-blue-200/50 backdrop-blur-lg bg-white/90">
-              <button onClick={onBack} className="mr-4 p-2 rounded-full hover:bg-gray-200">
+              <button onClick={onBack} className="mr-2 sm:mr-4 p-2 rounded-full hover:bg-gray-200">
                   <ArrowLeft className="h-5 w-5 text-gray-700" />
               </button>
-              <div className="w-10 h-10 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center mr-3">
-                 <span className="text-white font-semibold text-lg">{otherUser?.displayName?.charAt(0).toUpperCase()}</span>
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center mr-3">
+                 <span className="text-white font-semibold text-base sm:text-lg">{otherUser?.displayName?.charAt(0).toUpperCase()}</span>
               </div>
               <h2 className="font-semibold text-gray-900">{otherUser?.displayName}</h2>
           </div>
@@ -138,11 +138,11 @@ const CommunityChatView = ({ user, community, messages, newMessage, setNewMessag
         <div className="h-full flex flex-col">
             {/* Header */}
             <div className="flex items-center p-4 border-b border-purple-200/50 backdrop-blur-lg bg-white/90">
-                <button onClick={onBack} className="mr-4 p-2 rounded-full hover:bg-gray-200">
+                <button onClick={onBack} className="mr-2 sm:mr-4 p-2 rounded-full hover:bg-gray-200">
                     <ArrowLeft className="h-5 w-5 text-gray-700" />
                 </button>
-                <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-full flex items-center justify-center mr-3">
-                    <span className="text-white font-semibold text-lg">{community.name.charAt(0).toUpperCase()}</span>
+                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-full flex items-center justify-center mr-3">
+                    <span className="text-white font-semibold text-base sm:text-lg">{community.name.charAt(0).toUpperCase()}</span>
                 </div>
                 <div className="flex-1">
                     <h2 className="font-semibold text-gray-900">{community.name}</h2>
@@ -1215,20 +1215,20 @@ const handleDeleteConversation = async (conversationId: string | null) => {
       {/* Main Content */}
       <main className="relative z-10 flex-1 overflow-hidden">
         {activeTab === 'editor' && (
-          <div className="h-full overflow-y-auto px-4 py-6 space-y-6 scroll-hover">
+          <div className="h-full overflow-y-auto p-4 sm:p-6 space-y-6 scroll-hover">
             {/* Hero Card */}
             <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
               <div className="inline-flex items-center space-x-2 bg-blue-100 rounded-full px-3 py-1 text-blue-700 text-xs font-medium mb-3">
                 <Sparkles className="h-3 w-3" />
                 <span>Assistant IA</span>
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
                 Transformez vos 
                 <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
                   {' '}idées
                 </span>
               </h1>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm sm:text-base text-gray-600">
                 Créez du contenu parfait avec l'aide de notre IA
               </p>
             </div>
@@ -1249,7 +1249,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     value={userText}
                     onChange={(e) => setUserText(e.target.value)}
                     placeholder="Écrivez ce que vous voulez communiquer... Ne vous souciez pas de la grammaire - notez simplement vos idées."
-                    className="w-full h-40 p-4 pr-12 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none resize-none text-gray-700 placeholder-gray-400 bg-blue-50/30 backdrop-blur-sm transition-all duration-300 text-sm"
+                    className="w-full h-32 sm:h-40 p-4 pr-12 border-2 border-blue-200/50 rounded-xl focus:border-blue-500 focus:outline-none resize-none text-gray-700 placeholder-gray-400 bg-blue-50/30 backdrop-blur-sm transition-all duration-300 text-sm"
                   />
                   <button
                     onClick={() => handleTextToSpeech(userText, 'user')}
@@ -1364,39 +1364,39 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                 <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6">
                   <h2 className="text-lg font-bold text-gray-900 mb-4">Actions Rapides</h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <button onClick={() => setActiveTab('mail')} className="relative flex items-center p-4 rounded-lg bg-blue-100/50 hover:bg-blue-100 transition-colors">
-                      <div className="p-2 bg-blue-200 rounded-lg mr-4">
-                        <Mail className="h-5 w-5 text-blue-600" />
+                    <button onClick={() => setActiveTab('mail')} className="relative flex items-center p-3 sm:p-4 rounded-lg bg-blue-100/50 hover:bg-blue-100 transition-colors">
+                      <div className="p-2 bg-blue-200 rounded-lg mr-3 sm:mr-4">
+                        <Mail className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
                       </div>
-                      <span className="font-semibold text-blue-800">E-mail</span>
+                      <span className="font-semibold text-blue-800 text-sm sm:text-base">E-mail</span>
                       {totalUnreadDirectMessages > 0 && (
                         <div className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
                             {totalUnreadDirectMessages > 9 ? '9+' : totalUnreadDirectMessages}
                         </div>
                       )}
                     </button>
-                    <button className="flex items-center p-4 rounded-lg bg-green-100/50 hover:bg-green-100 transition-colors">
-                      <div className="p-2 bg-green-200 rounded-lg mr-4">
-                        <FileText className="h-5 w-5 text-green-600" />
+                    <button className="flex items-center p-3 sm:p-4 rounded-lg bg-green-100/50 hover:bg-green-100 transition-colors">
+                      <div className="p-2 bg-green-200 rounded-lg mr-3 sm:mr-4">
+                        <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-green-600" />
                       </div>
-                      <span className="font-semibold text-green-800">Document</span>
+                      <span className="font-semibold text-green-800 text-sm sm:text-base">Document</span>
                     </button>
-                    <button onClick={() => setActiveTab('community')} className="relative flex items-center p-4 rounded-lg bg-purple-100/50 hover:bg-purple-100 transition-colors">
-                      <div className="p-2 bg-purple-200 rounded-lg mr-4">
-                        <Users className="h-5 w-5 text-purple-600" />
+                    <button onClick={() => setActiveTab('community')} className="relative flex items-center p-3 sm:p-4 rounded-lg bg-purple-100/50 hover:bg-purple-100 transition-colors">
+                      <div className="p-2 bg-purple-200 rounded-lg mr-3 sm:mr-4">
+                        <Users className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600" />
                       </div>
-                      <span className="font-semibold text-purple-800">Communauté</span>
+                      <span className="font-semibold text-purple-800 text-sm sm:text-base">Communauté</span>
                        {totalUnreadCommunityMessages > 0 && (
                           <div className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
                               {totalUnreadCommunityMessages > 9 ? '9+' : totalUnreadCommunityMessages}
                           </div>
                       )}
                     </button>
-                    <button className="flex items-center p-4 rounded-lg bg-orange-100/50 hover:bg-orange-100 transition-colors">
-                      <div className="p-2 bg-orange-200 rounded-lg mr-4">
-                        <Send className="h-5 w-5 text-orange-600" />
+                    <button className="flex items-center p-3 sm:p-4 rounded-lg bg-orange-100/50 hover:bg-orange-100 transition-colors">
+                      <div className="p-2 bg-orange-200 rounded-lg mr-3 sm:mr-4">
+                        <Send className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600" />
                       </div>
-                      <span className="font-semibold text-orange-800">Partager</span>
+                      <span className="font-semibold text-orange-800 text-sm sm:text-base">Partager</span>
                     </button>
                   </div>
                 </div>
@@ -1599,7 +1599,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                 </div>
 
                 {isLoadingCommunities ? (
-                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 justify-center py-6">
+                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6 justify-center py-6">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <div key={i} className="flex flex-col items-center space-y-3">
                         <Skeleton className="w-32 h-32 rounded-full" />
@@ -1613,7 +1613,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     {filteredJoinedCommunities.length > 0 && (
                         <div>
                             <h3 className="text-lg font-semibold text-gray-800 mb-4">Mes Communautés</h3>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
                                 {filteredJoinedCommunities.map(renderCommunityCard)}
                             </div>
                         </div>
@@ -1621,7 +1621,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     
                     <div>
                         <h3 className="text-lg font-semibold text-gray-800 mb-4">Découvrir</h3>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
                             <CreateCommunityCard onClick={() => setShowCreateCommunityModal(true)} />
                             {filteredDiscoverCommunities.map(renderCommunityCard)}
                         </div>
