@@ -268,6 +268,15 @@ const FicheApp = () => {
   const [currentTheme, setCurrentTheme] = useState('default');
   const [profileVisibility, setProfileVisibility] = useState(true);
 
+  // Notification sound
+  const notificationSoundRef = useRef<HTMLAudioElement | null>(null);
+  const prevMessagesCount = useRef(0);
+  const prevCommunityMessagesCount = useRef(0);
+
+  // Initialize notification sound
+  useEffect(() => {
+    notificationSoundRef.current = new Audio('/sons.wav');
+  }, []);
 
   // Apply theme from localStorage on initial load
   useEffect(() => {
@@ -352,21 +361,36 @@ const FicheApp = () => {
   useEffect(() => {
     if (!selectedConversation?.id) {
         setMessages([]);
+        prevMessagesCount.current = 0;
         return;
     }
 
     const messagesRef = collection(db, "conversations", selectedConversation.id, "messages");
     const q = query(messagesRef, orderBy("timestamp", "asc"));
+    
+    let isFirstLoad = true;
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const msgs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Play notification sound for new incoming messages after initial load
+        if (!isFirstLoad && msgs.length > prevMessagesCount.current) {
+            const lastMessage = msgs[msgs.length - 1];
+            if (lastMessage && lastMessage.senderId !== user?.uid) {
+                notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
+            }
+        }
+        
         setMessages(msgs);
+        prevMessagesCount.current = msgs.length;
+        isFirstLoad = false;
+
     }, (error: any) => {
         console.error("Erreur d'écoute des messages: ", error);
     });
 
     return () => unsubscribe();
-  }, [selectedConversation?.id]);
+  }, [selectedConversation?.id, user?.uid]);
   
   // Mark messages as read
   useEffect(() => {
@@ -472,24 +496,37 @@ const FicheApp = () => {
     useEffect(() => {
         if (!selectedCommunity?.id) {
             setCommunityMessages([]);
+            prevCommunityMessagesCount.current = 0;
             return;
         }
 
         const messagesRef = rtdbRef(rtdb, `community-messages/${selectedCommunity.id}`);
         const q = rtdbQuery(messagesRef, orderByChild('timestamp'));
+        
+        let isFirstLoad = true;
 
         const unsubscribe = onValue(q, (snapshot) => {
             const data = snapshot.val();
+            let msgs: any[] = [];
             if (data) {
-                const msgs = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-                setCommunityMessages(msgs);
-            } else {
-                setCommunityMessages([]);
+                msgs = Object.keys(data).map(key => ({ id: key, ...data[key] }));
             }
+            
+            // Play notification sound for new incoming community messages after initial load
+            if (!isFirstLoad && msgs.length > prevCommunityMessagesCount.current) {
+                const lastMessage = msgs[msgs.length - 1];
+                if (lastMessage && lastMessage.senderId !== user?.uid) {
+                     notificationSoundRef.current?.play().catch(e => console.error("Error playing notification sound:", e));
+                }
+            }
+
+            setCommunityMessages(msgs);
+            prevCommunityMessagesCount.current = msgs.length;
+            isFirstLoad = false;
         });
 
         return () => unsubscribe();
-    }, [selectedCommunity?.id]);
+    }, [selectedCommunity?.id, user?.uid]);
 
     // Listen for community unread counts
     useEffect(() => {
