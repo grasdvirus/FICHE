@@ -20,7 +20,7 @@ const prompt = ai.definePrompt({
     name: 'analyzeTextPrompt',
     input: { schema: AnalyzeTextInputSchema },
     output: { schema: AnalyzeTextOutputSchema, format: 'json' },
-    prompt: `L'utilisateur a écrit ce texte: "{{text}}"
+    prompt: `L'utilisateur a écrit ce texte: "{{{text}}}"
       
     Fournissez une réponse JSON avec:
     1. "explanation": Une explication détaillée du texte
