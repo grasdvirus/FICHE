@@ -52,7 +52,7 @@ const getUserColor = (userId: string) => {
     return USER_COLORS[hash % USER_COLORS.length];
 };
 
-const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNewMessage, onSendMessage, onBack }: any) => {
+const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNewMessage, onSendMessage, onBack, suggestions, isSuggesting, onSuggestionClick }: any) => {
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
   
   const scrollToBottom = () => {
@@ -101,6 +101,27 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
 
           {/* Input Area */}
           <div className="p-4 border-t border-blue-200/50 backdrop-blur-lg bg-white/90">
+                {(isSuggesting || suggestions.length > 0) && (
+                    <div className="mb-2 p-2 bg-blue-50/50 rounded-lg border border-blue-200/30">
+                        <div className="flex items-center gap-2 flex-wrap min-h-[20px]">
+                            {isSuggesting && suggestions.length === 0 && (
+                                <span className="text-xs text-gray-500 flex items-center gap-1 animate-pulse">
+                                    <Bot className="h-3 w-3" />
+                                    ...
+                                </span>
+                            )}
+                            {suggestions.map((suggestion: string, index: number) => (
+                                <button
+                                    key={index}
+                                    onClick={() => onSuggestionClick(suggestion)}
+                                    className="text-xs bg-white text-blue-800 px-2 py-1 rounded-full hover:bg-blue-100 transition-colors border border-blue-200/50"
+                                >
+                                    {suggestion}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
               <div className="flex items-center space-x-2">
                   <input 
                       type="text"
@@ -123,7 +144,7 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
   );
 };
 
-const CommunityChatView = ({ user, community, messages, newMessage, setNewMessage, onSendMessage, onBack, isCreator, onEdit, onDelete }: any) => {
+const CommunityChatView = ({ user, community, messages, newMessage, setNewMessage, onSendMessage, onBack, isCreator, onEdit, onDelete, suggestions, isSuggesting, onSuggestionClick }: any) => {
     const messagesEndRef = useRef<null | HTMLDivElement>(null);
   
     const scrollToBottom = () => {
@@ -186,6 +207,27 @@ const CommunityChatView = ({ user, community, messages, newMessage, setNewMessag
   
             {/* Input Area */}
             <div className="p-4 border-t border-purple-200/50 backdrop-blur-lg bg-white/90">
+                {(isSuggesting || suggestions.length > 0) && (
+                    <div className="mb-2 p-2 bg-purple-50/50 rounded-lg border border-purple-200/30">
+                        <div className="flex items-center gap-2 flex-wrap min-h-[20px]">
+                            {isSuggesting && suggestions.length === 0 && (
+                                <span className="text-xs text-gray-500 flex items-center gap-1 animate-pulse">
+                                    <Bot className="h-3 w-3" />
+                                    ...
+                                </span>
+                            )}
+                            {suggestions.map((suggestion: string, index: number) => (
+                                <button
+                                    key={index}
+                                    onClick={() => onSuggestionClick(suggestion)}
+                                    className="text-xs bg-white text-purple-800 px-2 py-1 rounded-full hover:bg-purple-100 transition-colors border border-purple-200/50"
+                                >
+                                    {suggestion}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 <div className="flex items-center space-x-2">
                     <input 
                         type="text"
@@ -282,6 +324,16 @@ const FicheApp = () => {
   const [isSuggesting, setIsSuggesting] = useState(false);
   const debouncedUserText = useDebounce(userText, 750);
 
+  // AI chat suggestions
+  const [directMessageSuggestions, setDirectMessageSuggestions] = useState<string[]>([]);
+  const [isSuggestingDirect, setIsSuggestingDirect] = useState(false);
+  const debouncedNewMessage = useDebounce(newMessage, 750);
+
+  const [communityMessageSuggestions, setCommunityMessageSuggestions] = useState<string[]>([]);
+  const [isSuggestingCommunity, setIsSuggestingCommunity] = useState(false);
+  const debouncedNewCommunityMessage = useDebounce(newCommunityMessage, 750);
+
+
   // AI Suggestions Effect
   useEffect(() => {
     if (debouncedUserText.trim().length > 10) {
@@ -302,6 +354,48 @@ const FicheApp = () => {
       setTextSuggestions([]);
     }
   }, [debouncedUserText]);
+
+  // AI Suggestions Effect for Direct Messages
+  useEffect(() => {
+    if (debouncedNewMessage.trim().length > 3 && selectedConversation) {
+        const fetchSuggestions = async () => {
+            setIsSuggestingDirect(true);
+            try {
+                const result = await suggestSentences({ text: debouncedNewMessage });
+                setDirectMessageSuggestions(result.suggestions);
+            } catch (error) {
+                console.error("Erreur lors de la récupération des suggestions de chat:", error);
+                setDirectMessageSuggestions([]);
+            } finally {
+                setIsSuggestingDirect(false);
+            }
+        };
+        fetchSuggestions();
+    } else {
+        setDirectMessageSuggestions([]);
+    }
+  }, [debouncedNewMessage, selectedConversation]);
+
+  // AI Suggestions Effect for Community Messages
+  useEffect(() => {
+      if (debouncedNewCommunityMessage.trim().length > 3 && selectedCommunity) {
+          const fetchSuggestions = async () => {
+              setIsSuggestingCommunity(true);
+              try {
+                  const result = await suggestSentences({ text: debouncedNewCommunityMessage });
+                  setCommunityMessageSuggestions(result.suggestions);
+              } catch (error) {
+                  console.error("Erreur lors de la récupération des suggestions de communauté:", error);
+                  setCommunityMessageSuggestions([]);
+              } finally {
+                  setIsSuggestingCommunity(false);
+              }
+          };
+          fetchSuggestions();
+      } else {
+          setCommunityMessageSuggestions([]);
+      }
+  }, [debouncedNewCommunityMessage, selectedCommunity]);
 
 
   // Apply theme from localStorage on initial load
@@ -829,6 +923,8 @@ const handleDeleteConversation = async (conversationId: string | null) => {
     try {
       const messageContent = newMessage;
       setNewMessage('');
+      setDirectMessageSuggestions([]);
+
 
       const newMessageRef = doc(messagesRef);
       batch.set(newMessageRef, {
@@ -975,6 +1071,8 @@ const handleDeleteConversation = async (conversationId: string | null) => {
       try {
           const messageContent = newCommunityMessage;
           setNewCommunityMessage('');
+          setCommunityMessageSuggestions([]);
+
 
           await rtdbSet(newMessageRef, {
               content: messageContent,
@@ -1504,6 +1602,9 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     setNewMessage={setNewMessage}
                     onSendMessage={handleSendMessage}
                     onBack={() => setSelectedConversation(null)}
+                    suggestions={directMessageSuggestions}
+                    isSuggesting={isSuggestingDirect}
+                    onSuggestionClick={(suggestion: string) => setNewMessage(prev => `${prev.trim()} ${suggestion} `)}
                 />
             ) : (
               <div className="h-full flex flex-col">
@@ -1654,6 +1755,9 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     isCreator={user.uid === selectedCommunity.creatorId}
                     onEdit={handleOpenEditCommunityModal}
                     onDelete={() => setShowDeleteCommunityConfirm(selectedCommunity)}
+                    suggestions={communityMessageSuggestions}
+                    isSuggesting={isSuggestingCommunity}
+                    onSuggestionClick={(suggestion: string) => setNewCommunityMessage(prev => `${prev.trim()} ${suggestion} `)}
                 />
             ) : (
               <div className="h-full overflow-y-auto p-4 md:p-6 space-y-8 scroll-hover">

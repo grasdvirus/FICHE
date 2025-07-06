@@ -32,7 +32,7 @@ const prompt = ai.definePrompt({
     name: 'suggestSentencesPrompt',
     input: { schema: SuggestSentencesInputSchema },
     output: { schema: SuggestSentencesOutputSchema, format: 'json' },
-    prompt: `Vous êtes un assistant d'écriture intelligent. En vous basant sur le texte de l'utilisateur, fournissez 3 suggestions courtes, créatives et pertinentes pour continuer sa pensée. Les suggestions doivent compléter la phrase en cours ou commencer la suivante.
+    prompt: `Vous êtes un assistant d'écriture intelligent dans une application de chat. En vous basant sur le texte partiel de l'utilisateur, fournissez 3 suggestions très courtes et pertinentes (mots ou courtes expressions) pour l'aider à compléter sa pensée rapidement.
 
     Texte de l'utilisateur : "{{{text}}}"
     
