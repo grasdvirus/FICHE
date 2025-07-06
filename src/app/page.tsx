@@ -7,7 +7,9 @@ import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Ho
 import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
+import { suggestSentences } from '@/ai/flows/suggest-sentences';
 import { useToast } from '@/hooks/use-toast';
+import { useDebounce } from '@/hooks/use-debounce';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
@@ -274,6 +276,33 @@ const FicheApp = () => {
   const prevTotalUnreadCommunityMessages = useRef(0);
   const isInitialLoad = useRef(true);
   const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
+
+  // AI text suggestions
+  const [textSuggestions, setTextSuggestions] = useState<string[]>([]);
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const debouncedUserText = useDebounce(userText, 750);
+
+  // AI Suggestions Effect
+  useEffect(() => {
+    if (debouncedUserText.trim().length > 10) {
+      const fetchSuggestions = async () => {
+        setIsSuggesting(true);
+        try {
+          const result = await suggestSentences({ text: debouncedUserText });
+          setTextSuggestions(result.suggestions);
+        } catch (error) {
+          console.error("Erreur lors de la récupération des suggestions:", error);
+          setTextSuggestions([]);
+        } finally {
+          setIsSuggesting(false);
+        }
+      };
+      fetchSuggestions();
+    } else {
+      setTextSuggestions([]);
+    }
+  }, [debouncedUserText]);
+
 
   // Apply theme from localStorage on initial load
   useEffect(() => {
@@ -644,6 +673,7 @@ const FicheApp = () => {
     setAnalysisResult(null);
     setAiExplanationAudio(null);
     setUserTextAudio(null);
+    setTextSuggestions([]);
     toast({ title: 'Réinitialisé', description: 'Vous pouvez démarrer une nouvelle analyse.' });
   };
 
@@ -652,6 +682,7 @@ const FicheApp = () => {
     setIsAnalyzing(true);
     setAnalysisResult(null);
     setAiExplanationAudio(null);
+    setTextSuggestions([]);
     try {
         const result = await analyzeText({ text: userText });
         setAnalysisResult(result);
@@ -1264,6 +1295,27 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                 </div>
               </div>
               <div className="p-4">
+                {(isSuggesting || textSuggestions.length > 0) && (
+                    <div className="mb-2 p-2 bg-blue-50/50 rounded-lg border border-blue-200/30">
+                        <div className="flex items-center gap-2 flex-wrap min-h-[20px]">
+                            {isSuggesting && textSuggestions.length === 0 && (
+                                <span className="text-xs text-gray-500 flex items-center gap-1 animate-pulse">
+                                    <Bot className="h-3 w-3" />
+                                    L'IA suggère...
+                                </span>
+                            )}
+                            {textSuggestions.map((suggestion, index) => (
+                                <button
+                                    key={index}
+                                    onClick={() => setUserText(prev => `${prev.trim()} ${suggestion}`)}
+                                    className="text-xs bg-white text-blue-800 px-2 py-1 rounded-full hover:bg-blue-100 transition-colors border border-blue-200/50"
+                                >
+                                    {suggestion}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 <div className="relative">
                   <textarea
                     value={userText}
@@ -1305,7 +1357,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     </button>
                     <button 
                       onClick={handleAnalyze}
-                      disabled={isAnalyzing}
+                      disabled={isAnalyzing || !userText.trim()}
                       className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center space-x-2 disabled:opacity-50"
                     >
                       {isAnalyzing ? (
