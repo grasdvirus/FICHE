@@ -35,10 +35,18 @@ service cloud.firestore {
 
     // Rule for conversation documents
     match /conversations/{conversationId} {
-      // Participants can read, update, or delete the conversation
-      allow read, update, delete: if request.auth != null && request.auth.uid in resource.data.participantIds;
+      // Allow reading a single document (get) if the user's UID is in the conversationId.
+      // This is crucial for checking if a conversation exists before creating it.
+      allow get: if request.auth != null && request.auth.uid in conversationId.split('_');
 
-      // Anyone authenticated can create a conversation, as long as they are a participant
+      // Allow listing documents if the query is correctly filtered by participantIds.
+      // Firestore enforces that the `where` clause in the client query matches this rule.
+      allow list: if request.auth != null && request.auth.uid in resource.data.participantIds;
+
+      // Participants can update or delete an existing conversation.
+      allow update, delete: if request.auth != null && request.auth.uid in resource.data.participantIds;
+
+      // Anyone authenticated can create a conversation, as long as they are a participant.
       allow create: if request.auth != null && request.auth.uid in request.resource.data.participantIds;
 
       // Rule for message sub-collection
