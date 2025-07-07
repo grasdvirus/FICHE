@@ -11,7 +11,7 @@
     "communities": {
       ".read": true,
       "$communityId": {
-        ".write": "auth != null && ((!data.exists() && newData.exists()) || (data.exists() && !newData.exists() && data.child('creatorId').val() == auth.uid) || (data.exists() && newData.exists() && (data.child('creatorId').val() == auth.uid || data.child('members').hasChild(auth.uid))))",
+        ".write": "auth != null && ((!data.exists() && newData.exists()) || (data.exists() && !newData.exists() && data.child('creatorId').val() == auth.uid) || (data.exists() && newData.exists() && (data.child('creatorId').val() == auth.uid || data.child('members').hasChild(auth.uid) || (!data.child('members').hasChild(auth.uid) && newData.child('members').hasChild(auth.uid)))))",
         ".validate": "newData.exists() || !newData.exists()",
         "name": {
           ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 100"
