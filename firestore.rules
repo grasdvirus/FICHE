@@ -7,8 +7,8 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds;
     }
 
-    // Rule to validate that the user data being created or updated is valid.
-    function validateUserData(data) {
+    // Rule to validate that the user data being CREATED is valid.
+    function validateUserCreateData(data) {
         return data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'isVerified', 'visibility']) &&
             data.uid == request.auth.uid &&
             data.displayName is string &&
@@ -17,16 +17,27 @@ service cloud.firestore {
             data.isVerified is bool &&
             data.visibility == 'public';
     }
+    
+    // Rule to validate that the user data being UPDATED is valid.
+    function validateUserUpdateData(data) {
+        return data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'isVerified', 'visibility']) &&
+            data.uid == request.auth.uid &&
+            data.displayName is string &&
+            (data.email is string || data.email == null) &&
+            (data.photoURL is string || data.photoURL == null) &&
+            data.isVerified is bool &&
+            (data.visibility == 'public' || data.visibility == 'private');
+    }
 
     // Rule for user documents
     match /users/{userId} {
       allow read: if request.auth != null;
 
       // A user can create their own profile if the data is valid
-      allow create: if request.auth.uid == userId && validateUserData(request.resource.data);
+      allow create: if request.auth.uid == userId && validateUserCreateData(request.resource.data);
 
       // A user can update their own profile, but cannot change their createdAt timestamp
-      allow update: if request.auth.uid == userId && validateUserData(request.resource.data)
+      allow update: if request.auth.uid == userId && validateUserUpdateData(request.resource.data)
                     && request.resource.data.createdAt == resource.data.createdAt;
 
       // A user can delete their own profile
