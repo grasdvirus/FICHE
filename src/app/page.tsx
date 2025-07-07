@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown, Loader2, X, Settings, FileEdit, Info, Star } from 'lucide-react';
+import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown, Loader2, X, Settings, FileEdit, Info, Star, Compass } from 'lucide-react';
 import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
@@ -1540,12 +1540,6 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                         </div>
                       )}
                     </button>
-                    <button className="flex items-center p-3 sm:p-4 rounded-lg bg-green-100/50 hover:bg-green-100 transition-colors">
-                      <div className="p-2 bg-green-200 rounded-lg mr-3 sm:mr-4">
-                        <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-green-600" />
-                      </div>
-                      <span className="font-semibold text-green-800 text-sm sm:text-base">Document</span>
-                    </button>
                     <button onClick={() => setActiveTab('community')} className="relative flex items-center p-3 sm:p-4 rounded-lg bg-purple-100/50 hover:bg-purple-100 transition-colors">
                       <div className="p-2 bg-purple-200 rounded-lg mr-3 sm:mr-4">
                         <Users className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600" />
@@ -1556,12 +1550,6 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                               {totalUnreadCommunityMessages > 9 ? '9+' : totalUnreadCommunityMessages}
                           </div>
                       )}
-                    </button>
-                    <button onClick={() => setActiveTab('reviews')} className="flex items-center p-3 sm:p-4 rounded-lg bg-orange-100/50 hover:bg-orange-100 transition-colors">
-                      <div className="p-2 bg-orange-200 rounded-lg mr-3 sm:mr-4">
-                        <Star className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600" />
-                      </div>
-                      <span className="font-semibold text-orange-800 text-sm sm:text-base">Avis & Votes</span>
                     </button>
                   </div>
                 </div>
@@ -1804,13 +1792,74 @@ const handleDeleteConversation = async (conversationId: string | null) => {
             )}
            </div>
         )}
+
+        {activeTab === 'discover' && (
+          <div className="h-full overflow-y-auto p-4 sm:p-6 space-y-6 scroll-hover">
+            <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Découvrir</h1>
+              <p className="text-sm sm:text-base text-gray-600">
+                Explorez des outils et fonctionnalités pour améliorer votre productivité.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button onClick={() => setActiveTab('reviews')} className="flex items-center p-4 rounded-lg bg-orange-100/50 hover:bg-orange-100 transition-colors">
+                <div className="p-3 bg-orange-200 rounded-lg mr-4">
+                  <Star className="h-6 w-6 text-orange-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-orange-800 text-base">Avis &amp; Votes</h3>
+                  <p className="text-sm text-orange-700/80">Donnez votre avis.</p>
+                </div>
+              </button>
+              <button onClick={() => setActiveTab('files')} className="flex items-center p-4 rounded-lg bg-green-100/50 hover:bg-green-100 transition-colors">
+                <div className="p-3 bg-green-200 rounded-lg mr-4">
+                  <FileText className="h-6 w-6 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-green-800 text-base">Fichiers</h3>
+                  <p className="text-sm text-green-700/80">Gérez vos documents.</p>
+                </div>
+              </button>
+              <button onClick={() => setActiveTab('editor')} className="flex items-center p-4 rounded-lg bg-blue-100/50 hover:bg-blue-100 transition-colors sm:col-span-2">
+                <div className="p-3 bg-blue-200 rounded-lg mr-4">
+                  <Sparkles className="h-6 w-6 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-blue-800 text-base">Assistant IA</h3>
+                  <p className="text-sm text-blue-700/80">Analysez et améliorez vos textes.</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'files' && (
+          <div className="h-full overflow-y-auto p-4 sm:p-6 space-y-6 scroll-hover">
+            <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
+              <div className="inline-flex items-center space-x-2 bg-green-100 rounded-full px-3 py-1 text-green-700 text-xs font-medium mb-3">
+                <FileText className="h-3 w-3" />
+                <span>Gestion de Fichiers</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+                Vos Documents
+              </h1>
+              <p className="text-sm sm:text-base text-gray-600">
+                Cette fonctionnalité est en cours de développement.
+              </p>
+            </div>
+            <div className="text-center text-gray-500 py-10">
+              <FileText className="h-12 w-12 mx-auto text-gray-400" />
+              <p className="mt-4">Bientôt, vous pourrez gérer vos fichiers ici.</p>
+            </div>
+          </div>
+        )}
         
         {activeTab === 'reviews' && (
           <div className="h-full overflow-y-auto p-4 sm:p-6 space-y-6 scroll-hover">
             <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
               <div className="inline-flex items-center space-x-2 bg-orange-100 rounded-full px-3 py-1 text-orange-700 text-xs font-medium mb-3">
                 <Star className="h-3 w-3" />
-                <span>Avis & Votes</span>
+                <span>Avis &amp; Votes</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
                 Votre opinion compte
@@ -1922,11 +1971,11 @@ const handleDeleteConversation = async (conversationId: string | null) => {
             )}
           </button>
           <button 
-            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'reviews' ? 'text-primary bg-primary/10' : 'text-gray-500'}`}
-            onClick={() => { setActiveTab('reviews'); setSelectedConversation(null); setSelectedCommunity(null); }}
+            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'discover' || activeTab === 'reviews' || activeTab === 'files' ? 'text-primary bg-primary/10' : 'text-gray-500'}`}
+            onClick={() => { setActiveTab('discover'); setSelectedConversation(null); setSelectedCommunity(null); }}
           >
-            <Star className="h-5 w-5 mb-1" />
-            <span className="text-xs font-medium">Avis</span>
+            <Compass className="h-5 w-5 mb-1" />
+            <span className="text-xs font-medium">Découvrir</span>
           </button>
         </div>
       </nav>
@@ -2302,3 +2351,7 @@ export default FicheApp;
 
     
 
+
+
+
+    
