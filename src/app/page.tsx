@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser, GoogleAuthProvider } from 'firebase/auth';
 import { auth, googleProvider, db, rtdb } from '@/lib/firebase';
-import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, getDoc, updateDoc, arrayUnion, writeBatch, increment, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, getDoc, updateDoc, arrayUnion, writeBatch, increment, deleteDoc, limit } from 'firebase/firestore';
 import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp, push, runTransaction, query as rtdbQuery, orderByChild, update as rtdbUpdate, remove as rtdbRemove } from 'firebase/database';
 import { formatDistanceToNow, format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -324,11 +324,9 @@ const FicheApp = () => {
   const [currentRating, setCurrentRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [reviewText, setReviewText] = useState('');
-  const placeholderReviews = [
-    { id: 1, name: 'Alexandre P.', avatar: '/avatars/alex.png', rating: 5, text: "Application incroyable ! L'assistant IA est révolutionnaire et m'a fait gagner un temps fou. L'interface est belle et intuitive. Je recommande à 100% !", date: "Il y a 2 jours" },
-    { id: 2, name: 'Marie C.', avatar: '/avatars/marie.png', rating: 4, text: "Très bonne application, je l'utilise tous les jours. La fonctionnalité de communauté est géniale pour échanger des idées. J'aimerais juste un mode sombre un peu plus contrasté.", date: "Il y a 1 semaine" },
-    { id: 3, name: 'Julien L.', avatar: '/avatars/julien.png', rating: 5, text: "Simple, efficace, puissant. Fiche a changé ma façon de travailler et de communiquer. Le support est réactif et les mises à jour sont pertinentes. Bravo à l'équipe !", date: "Il y a 3 semaines" },
-  ];
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(true);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
   // Notification sound
   const notificationSoundRef = useRef<HTMLAudioElement | null>(null);
@@ -350,6 +348,36 @@ const FicheApp = () => {
   const [communityMessageSuggestions, setCommunityMessageSuggestions] = useState<string[]>([]);
   const [isSuggestingCommunity, setIsSuggestingCommunity] = useState(false);
   const debouncedNewCommunityMessage = useDebounce(newCommunityMessage, 750);
+
+  // Fetch reviews
+  useEffect(() => {
+    if (activeTab !== 'reviews') return;
+
+    setIsLoadingReviews(true);
+    const reviewsRef = collection(db, "reviews");
+    const q = query(reviewsRef, orderBy("createdAt", "desc"), limit(20));
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const fetchedReviews = querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            // Convert Firestore Timestamp to JS Date for formatting
+            date: doc.data().createdAt?.toDate() 
+        }));
+        setReviews(fetchedReviews);
+        setIsLoadingReviews(false);
+    }, (error) => {
+        console.error("Erreur de lecture des avis:", error);
+        toast({
+            title: "Erreur",
+            description: "Impossible de charger les avis.",
+            variant: "destructive"
+        });
+        setIsLoadingReviews(false);
+    });
+
+    return () => unsubscribe();
+  }, [activeTab]);
 
 
   // AI Suggestions Effect
@@ -433,7 +461,9 @@ const FicheApp = () => {
 
     try {
       const usersRef = collection(db, "users");
-      const q = query(usersRef, where("visibility", "==", "public"));
+      // To avoid needing a composite index, we fetch all public users and filter client-side.
+      // This is acceptable for a small number of users. For larger scale, consider a more specific query.
+      const q = query(usersRef, where("uid", "in", newUsersToFetch));
       const querySnapshot = await getDocs(q);
       const fetchedUsers: {[key: string]: any} = {};
       querySnapshot.forEach((doc) => {
@@ -584,11 +614,12 @@ const FicheApp = () => {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
       if (currentUser) {
-        setShowLogin(false);
         await ensureUserProfileExists(currentUser);
+        setUser(currentUser);
+        setShowLogin(false);
       } else {
+        setUser(null);
         isInitialLoad.current = true; // Reset on logout
         setActiveTab('editor');
       }
@@ -724,7 +755,7 @@ const FicheApp = () => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       // Let onAuthStateChanged handle the rest
-    } catch (error) {
+    } catch (error: any) {
       handleAuthError(error);
     } finally {
       setIsAuthLoading(false);
@@ -1172,16 +1203,42 @@ const handleDeleteConversation = async (conversationId: string | null) => {
     setCurrentTheme(themeName);
   }
 
-  const handleReviewSubmit = () => {
-    if (currentRating === 0) {
-      toast({ title: "Note requise", description: "Veuillez sélectionner une note avant d'envoyer.", variant: "destructive" });
-      return;
+  const handleReviewSubmit = async () => {
+    if (!user) {
+        toast({ title: "Connexion requise", description: "Vous devez être connecté pour laisser un avis.", variant: "destructive" });
+        setShowLogin(true);
+        return;
     }
-    // TODO: Implement backend submission
-    toast({ title: "Avis envoyé !", description: "Merci pour votre retour." });
-    setCurrentRating(0);
-    setReviewText('');
-  }
+    if (currentRating === 0) {
+        toast({ title: "Note requise", description: "Veuillez sélectionner une note avant d'envoyer.", variant: "destructive" });
+        return;
+    }
+    if (!reviewText.trim()) {
+        toast({ title: "Commentaire requis", description: "Veuillez rédiger un commentaire pour accompagner votre note.", variant: "destructive" });
+        return;
+    }
+
+    setIsSubmittingReview(true);
+    try {
+        await addDoc(collection(db, "reviews"), {
+            userId: user.uid,
+            userName: user.displayName || user.email?.split('@')[0],
+            userAvatar: user.photoURL || null,
+            rating: currentRating,
+            text: reviewText,
+            createdAt: serverTimestamp()
+        });
+
+        toast({ title: "Avis envoyé !", description: "Merci pour votre retour." });
+        setCurrentRating(0);
+        setReviewText('');
+    } catch (error) {
+        console.error("Erreur d'envoi de l'avis:", error);
+        toast({ title: "Erreur", description: "Votre avis n'a pas pu être envoyé.", variant: "destructive" });
+    } finally {
+        setIsSubmittingReview(false);
+    }
+  };
 
   const totalUnreadDirectMessages = conversations.reduce((acc, conv) => {
       return acc + (conv.unreadCounts?.[user?.uid || ''] || 0);
@@ -1896,28 +1953,50 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                   value={reviewText}
                   onChange={(e) => setReviewText(e.target.value)}
                   className="min-h-[100px] bg-blue-50/30"
+                  disabled={isSubmittingReview}
                 />
               </CardContent>
               <CardFooter>
-                <Button onClick={handleReviewSubmit} className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600">
-                  Envoyer mon avis
+                <Button onClick={handleReviewSubmit} className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600" disabled={isSubmittingReview}>
+                  {isSubmittingReview ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {isSubmittingReview ? "Envoi en cours..." : "Envoyer mon avis"}
                 </Button>
               </CardFooter>
             </Card>
 
             <div className="space-y-4">
                 <h3 className="text-xl font-bold text-gray-900">Avis récents</h3>
-                {placeholderReviews.map(review => (
+                {isLoadingReviews ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <Card key={i} className="backdrop-blur-lg bg-white/90 shadow-xl border border-blue-200/50">
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                          <div className="flex items-center space-x-3">
+                              <Skeleton className="h-10 w-10 rounded-full" />
+                              <div className="space-y-2">
+                                  <Skeleton className="h-4 w-24" />
+                                  <Skeleton className="h-3 w-16" />
+                              </div>
+                          </div>
+                          <Skeleton className="h-4 w-20" />
+                      </CardHeader>
+                      <CardContent>
+                          <Skeleton className="h-4 w-full" />
+                          <Skeleton className="h-4 w-2/3 mt-2" />
+                      </CardContent>
+                    </Card>
+                  ))
+                ) : reviews.length > 0 ? (
+                  reviews.map(review => (
                     <Card key={review.id} className="backdrop-blur-lg bg-white/90 shadow-xl border border-blue-200/50">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <div className="flex items-center space-x-3">
                                 <Avatar>
-                                    <AvatarImage src={review.avatar} alt={review.name} data-ai-hint="person portrait" />
-                                    <AvatarFallback>{review.name.charAt(0)}</AvatarFallback>
+                                    <AvatarImage src={review.userAvatar} alt={review.userName} data-ai-hint="person portrait" />
+                                    <AvatarFallback>{review.userName?.charAt(0) || 'U'}</AvatarFallback>
                                 </Avatar>
                                 <div>
-                                    <p className="font-semibold">{review.name}</p>
-                                    <p className="text-xs text-muted-foreground">{review.date}</p>
+                                    <p className="font-semibold">{review.userName}</p>
+                                    <p className="text-xs text-muted-foreground">{review.date ? formatDistanceToNow(review.date, { addSuffix: true, locale: fr }) : ''}</p>
                                 </div>
                             </div>
                             <div className="flex items-center">
@@ -1930,7 +2009,13 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                             <p className="text-sm text-gray-700">{review.text}</p>
                         </CardContent>
                     </Card>
-                ))}
+                  ))
+                ) : (
+                  <div className="text-center text-gray-500 py-10">
+                    <p>Aucun avis pour le moment.</p>
+                    <p className="text-sm">Soyez le premier à donner votre opinion !</p>
+                  </div>
+                )}
             </div>
           </div>
         )}
