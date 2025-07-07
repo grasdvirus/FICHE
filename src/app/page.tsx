@@ -681,10 +681,6 @@ const FicheApp = () => {
       toast({ title: "Champs manquants", description: "Veuillez entrer une adresse e-mail et un mot de passe.", variant: "destructive" });
       return;
     }
-    if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
-      toast({ title: "Mot de passe faible", description: "Minimum 8 caractères, une majuscule et un chiffre.", variant: "destructive" });
-      return;
-    }
     setIsAuthLoading(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
