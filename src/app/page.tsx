@@ -537,29 +537,29 @@ const FicheApp = () => {
 
   const ensureUserProfileExists = async (userAuth: FirebaseUser) => {
     if (!userAuth) return;
-
-    const userRef = doc(db, "users", userAuth.uid);
-    const userSnap = await getDoc(userRef);
-
-    if (!userSnap.exists()) {
-        try {
-            await setDoc(userRef, {
-                uid: userAuth.uid,
-                email: userAuth.email,
-                displayName: userAuth.displayName || userAuth.email?.split('@')[0] || "Anonymous",
-                photoURL: userAuth.photoURL || null,
-                createdAt: serverTimestamp(),
-                isVerified: userAuth.emailVerified,
-                visibility: "public", // Always public, as per the rules
-            });
-        } catch (error) {
-            console.error("Erreur de création du profil utilisateur:", error);
-            toast({
-                title: "Erreur de compte",
-                description: "Impossible de finaliser la création de votre profil.",
-                variant: "destructive",
-            });
-        }
+  
+    const userRef = doc(db, 'users', userAuth.uid);
+    try {
+      const userSnap = await getDoc(userRef);
+  
+      if (!userSnap.exists()) {
+        await setDoc(userRef, {
+          uid: userAuth.uid,
+          email: userAuth.email,
+          displayName: userAuth.displayName || userAuth.email?.split('@')[0] || 'Anonymous',
+          photoURL: userAuth.photoURL || null,
+          createdAt: serverTimestamp(),
+          isVerified: userAuth.emailVerified,
+          visibility: 'public',
+        });
+      }
+    } catch (error) {
+      console.error("Erreur de création/vérification du profil utilisateur:", error);
+      toast({
+        title: 'Erreur de compte',
+        description: 'Impossible de finaliser la configuration de votre profil.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -671,7 +671,7 @@ const FicheApp = () => {
             description = "Le mot de passe doit contenir au moins 6 caractères.";
             break;
         case 'auth/popup-closed-by-user':
-            description = "La fenêtre de connexion a été fermée. Si le problème persiste, assurez-vous que ce domaine est autorisé dans les paramètres d'authentification de votre projet Firebase.";
+            description = "La fenêtre de connexion a été fermée. Si vous ne l'avez pas fermée vous-même, il est probable que le domaine de cette application doive être autorisé dans les paramètres de votre projet Firebase.";
             break;
         default:
             description = error.message || description;
@@ -688,7 +688,7 @@ const FicheApp = () => {
     setIsAuthLoading(true);
     try {
       await createUserWithEmailAndPassword(auth, email, password);
-      toast({ title: 'Compte créé', description: 'Votre compte a été créé avec succès.' });
+      // Let onAuthStateChanged handle the rest
     } catch (error: any) {
       handleAuthError(error);
     } finally {
@@ -704,6 +704,7 @@ const FicheApp = () => {
     setIsAuthLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
+      // Let onAuthStateChanged handle the rest
     } catch (error) {
       handleAuthError(error);
     } finally {
@@ -715,6 +716,7 @@ const FicheApp = () => {
     setIsAuthLoading(true);
     try {
       await signInWithPopup(auth, googleProvider);
+      // Let onAuthStateChanged handle the rest
     } catch (error) {
       handleAuthError(error);
     } finally {
@@ -730,6 +732,7 @@ const FicheApp = () => {
     await signOut(auth);
     setSelectedConversation(null);
     setSelectedCommunity(null);
+    setActiveTab('editor');
   };
 
   const handleResetAI = () => {
