@@ -7,10 +7,9 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds;
     }
 
-    // Rule to validate that the user data being created or updated is valid.
-    function validateUserData(data) {
-        return data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'isVerified', 'visibility']) &&
-            data.uid == request.auth.uid &&
+    // Rule to validate the core user data fields.
+    function validateUserCoreData(data) {
+        return data.uid == request.auth.uid &&
             data.displayName is string &&
             (data.email is string || data.email == null) &&
             (data.photoURL is string || data.photoURL == null) &&
@@ -22,12 +21,18 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if request.auth != null;
 
-      // A user can create their own profile if the data is valid
-      allow create: if request.auth.uid == userId && validateUserData(request.resource.data);
+      // A user can create their own profile if the data is valid.
+      // We explicitly check for the server timestamp to be the creation time.
+      allow create: if request.auth.uid == userId &&
+                       validateUserCoreData(request.resource.data) &&
+                       request.resource.data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'isVerified', 'visibility']) &&
+                       request.resource.data.createdAt == request.time;
 
-      // A user can update their own profile, but cannot change their createdAt timestamp
-      allow update: if request.auth.uid == userId && validateUserData(request.resource.data)
-                    && request.resource.data.createdAt == resource.data.createdAt;
+      // A user can update their own profile, but cannot change their uid or createdAt timestamp.
+      allow update: if request.auth.uid == userId &&
+                       validateUserCoreData(request.resource.data) &&
+                       request.resource.data.uid == resource.data.uid &&
+                       request.resource.data.createdAt == resource.data.createdAt;
 
       // A user can delete their own profile
       allow delete: if request.auth.uid == userId;
