@@ -87,8 +87,8 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
                   const isReadByOther = msg.readBy?.includes(otherParticipantId);
                   return (
                     <div key={msg.id} className={`flex items-end gap-2 ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-primary text-primary-foreground' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
-                            <p className="text-sm break-words">{msg.content}</p>
+                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md break-words ${msg.senderId === user.uid ? 'bg-primary text-primary-foreground' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
+                            <p className="text-sm">{msg.content}</p>
                         </div>
                         {msg.senderId === user.uid && (
                             isReadByOther ? <CheckCheck className="h-4 w-4 text-blue-500" /> : <Check className="h-4 w-4 text-orange-500" />
@@ -197,8 +197,8 @@ const CommunityChatView = ({ user, community, messages, newMessage, setNewMessag
                 {messages.map((msg: any) => (
                     <div key={msg.id} className={`flex flex-col gap-1 ${msg.senderId === user.uid ? 'items-end' : 'items-start'}`}>
                         {msg.senderId !== user.uid && <span className={`text-xs font-bold ml-3 ${getUserColor(msg.senderId)}`}>{msg.senderName}</span>}
-                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md ${msg.senderId === user.uid ? 'bg-primary text-primary-foreground' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
-                            <p className="text-sm break-words">{msg.content}</p>
+                        <div className={`px-4 py-2 rounded-2xl max-w-xs md:max-w-md break-words ${msg.senderId === user.uid ? 'bg-primary text-primary-foreground' : 'bg-gray-200 text-gray-800 rounded-bl-none'}`}>
+                            <p className="text-sm">{msg.content}</p>
                         </div>
                     </div>
                 ))}
@@ -755,7 +755,7 @@ const FicheApp = () => {
     await signOut(auth);
     setSelectedConversation(null);
     setSelectedCommunity(null);
-    toast({ title: 'Déconnexion', description: 'Vous avez été déconnecté.' });
+    setActiveTab('editor');
   };
 
   const handleResetAI = () => {
@@ -821,7 +821,8 @@ const FicheApp = () => {
     if (!user) return;
     try {
         const usersRef = collection(db, "users");
-        const q = query(usersRef, where("uid", "!=", user.uid));
+        // Update query to only find users with public visibility
+        const q = query(usersRef, where("uid", "!=", user.uid), where("visibility", "==", "public"));
         const querySnapshot = await getDocs(q);
         const allUsers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setUsersToMessage(allUsers);
