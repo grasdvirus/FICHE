@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -35,10 +36,11 @@ service cloud.firestore {
 
     // Rule for conversation documents
     match /conversations/{conversationId} {
-      // `get` allows checking for an existing conversation before creating a new one.
+      // Allow reading a single document (get) if the user is one of the participants named in the document ID.
+      // This is crucial for checking if a conversation exists before creating it.
       allow get: if request.auth != null && request.auth.uid in split(conversationId, '_');
       
-      // `list`, `update`, and `delete` require checking the document data.
+      // Allow listing, updating, and deleting if the user is a participant.
       allow list, update, delete: if request.auth != null && request.auth.uid in resource.data.participantIds;
 
       // Anyone authenticated can create a conversation, as long as they are a participant
