@@ -310,7 +310,6 @@ const FicheApp = () => {
   // Settings states
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [currentTheme, setCurrentTheme] = useState('default');
-  const [profileVisibility, setProfileVisibility] = useState(true);
 
   // Notification sound
   const notificationSoundRef = useRef<HTMLAudioElement | null>(null);
@@ -536,42 +535,47 @@ const FicheApp = () => {
     markAsRead();
   }, [selectedConversation?.id, messages, user?.uid]);
 
+  const ensureUserProfileExists = async (userAuth: FirebaseUser) => {
+    if (!userAuth) return;
+
+    const userRef = doc(db, "users", userAuth.uid);
+    const userSnap = await getDoc(userRef);
+
+    if (!userSnap.exists()) {
+        try {
+            await setDoc(userRef, {
+                uid: userAuth.uid,
+                email: userAuth.email,
+                displayName: userAuth.displayName || userAuth.email?.split('@')[0] || "Anonymous",
+                photoURL: userAuth.photoURL || null,
+                createdAt: serverTimestamp(),
+                isVerified: userAuth.emailVerified,
+                visibility: "public", // Always public, as per the rules
+            });
+        } catch (error) {
+            console.error("Erreur de création du profil utilisateur:", error);
+            toast({
+                title: "Erreur de compte",
+                description: "Impossible de finaliser la création de votre profil.",
+                variant: "destructive",
+            });
+        }
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         setShowLogin(false);
-        const userRef = doc(db, "users", currentUser.uid);
-        try {
-          const userSnap = await getDoc(userRef);
-          if (!userSnap.exists()) {
-            await setDoc(doc(db, "users", currentUser.uid), {
-              uid: currentUser.uid,
-              email: currentUser.email,
-              displayName: currentUser.displayName || currentUser.email?.split('@')[0] || "Anonymous",
-              photoURL: currentUser.photoURL || null,
-              createdAt: serverTimestamp(),
-              isVerified: currentUser.emailVerified,
-              visibility: "public",
-            });
-          } else {
-             setProfileVisibility(userSnap.data().visibility === 'public');
-          }
-        } catch (error: any) {
-          console.error("Erreur de synchronisation de l'utilisateur:", error);
-          toast({
-            title: "Erreur de synchronisation",
-            description: "Impossible de synchroniser les données utilisateur.",
-            variant: "destructive",
-          });
-        }
+        await ensureUserProfileExists(currentUser);
       } else {
         isInitialLoad.current = true; // Reset on logout
         setActiveTab('editor');
       }
     });
     return () => unsubscribe();
-  }, [toast]);
+  }, []);
   
     // Listen for communities in Realtime Database
     useEffect(() => {
@@ -1145,21 +1149,6 @@ const handleDeleteConversation = async (conversationId: string | null) => {
     document.documentElement.style.setProperty('--ring', theme.ring);
     localStorage.setItem('app-theme', themeName);
     setCurrentTheme(themeName);
-  }
-
-  const handleVisibilityChange = async (checked: boolean) => {
-    if (!user) return;
-    const newVisibility = checked ? 'public' : 'private';
-    setProfileVisibility(checked);
-    const userRef = doc(db, "users", user.uid);
-    try {
-        await updateDoc(userRef, { visibility: newVisibility });
-        toast({ title: 'Visibilité mise à jour', description: `Votre profil est maintenant ${newVisibility}.`});
-    } catch (error) {
-        console.error("Error updating visibility:", error);
-        toast({ title: 'Erreur', description: 'Impossible de mettre à jour la visibilité.', variant: 'destructive'});
-        setProfileVisibility(!checked); // Revert on error
-    }
   }
 
   const totalUnreadDirectMessages = conversations.reduce((acc, conv) => {
@@ -2006,12 +1995,11 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     ))}
                 </div>
             </div>
-            <div className="flex items-center space-x-2">
-                <Switch id="visibility-mode" checked={profileVisibility} onCheckedChange={handleVisibilityChange} />
-                <Label htmlFor="visibility-mode">Profil public</Label>
-            </div>
              <div className="space-y-3">
                 <Label>Gestion du compte</Label>
+                <p className="text-sm text-muted-foreground">
+                  Tous les profils sont publics par défaut.
+                </p>
                 <Button variant="outline" onClick={() => { handleResetAI(); setShowSettingsModal(false); }}>
                     <Trash2 className="mr-2 h-4 w-4"/>
                     Supprimer l'historique IA
