@@ -567,6 +567,7 @@ const FicheApp = () => {
         }
       } else {
         isInitialLoad.current = true; // Reset on logout
+        setActiveTab('editor');
       }
     });
     return () => unsubscribe();
@@ -682,19 +683,7 @@ const FicheApp = () => {
     }
     setIsAuthLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const newUser = userCredential.user;
-  
-      await setDoc(doc(db, "users", newUser.uid), {
-          uid: newUser.uid,
-          email: newUser.email,
-          displayName: newUser.email?.split('@')[0] || "Anonymous",
-          photoURL: newUser.photoURL || null,
-          createdAt: serverTimestamp(),
-          isVerified: newUser.emailVerified,
-          visibility: "public",
-        });
-      
+      await createUserWithEmailAndPassword(auth, email, password);
       toast({ title: 'Compte créé', description: 'Votre compte a été créé avec succès.' });
     } catch (error: any) {
       handleAuthError(error);
@@ -711,7 +700,6 @@ const FicheApp = () => {
     setIsAuthLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      toast({ title: 'Connexion réussie', description: 'Vous êtes maintenant connecté.' });
     } catch (error) {
       handleAuthError(error);
     } finally {
@@ -722,23 +710,7 @@ const FicheApp = () => {
   const handleGoogleSignIn = async () => {
     setIsAuthLoading(true);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
-
-      const userRef = doc(db, "users", user.uid);
-      const userSnap = await getDoc(userRef);
-      if (!userSnap.exists()) {
-        await setDoc(userRef, {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName || user.email?.split('@')[0] || "Anonymous",
-          photoURL: user.photoURL || null,
-          createdAt: serverTimestamp(),
-          isVerified: user.emailVerified,
-          visibility: "public",
-        });
-      }
-      toast({ title: 'Connexion réussie', description: 'Vous êtes maintenant connecté avec Google.' });
+      await signInWithPopup(auth, googleProvider);
     } catch (error) {
       handleAuthError(error);
     } finally {
@@ -754,7 +726,6 @@ const FicheApp = () => {
     await signOut(auth);
     setSelectedConversation(null);
     setSelectedCommunity(null);
-    setActiveTab('editor');
   };
 
   const handleResetAI = () => {
@@ -2193,4 +2164,6 @@ const handleDeleteConversation = async (conversationId: string | null) => {
 
 export default FicheApp;
     
+    
+
     
