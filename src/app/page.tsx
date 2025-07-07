@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown, Loader2, X, Settings, FileEdit, Info } from 'lucide-react';
+import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown, Loader2, X, Settings, FileEdit, Info, Star } from 'lucide-react';
 import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
@@ -27,6 +27,9 @@ import { fr } from 'date-fns/locale';
 import { CommunityCard, CreateCommunityCard } from '@/components/community-cards';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+
 
 // Helper to get a consistent conversation ID
 const getConversationId = (uid1: string, uid2: string) => {
@@ -317,6 +320,16 @@ const FicheApp = () => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [currentTheme, setCurrentTheme] = useState('default');
 
+  // Review states
+  const [currentRating, setCurrentRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [reviewText, setReviewText] = useState('');
+  const placeholderReviews = [
+    { id: 1, name: 'Alexandre P.', avatar: '/avatars/alex.png', rating: 5, text: "Application incroyable ! L'assistant IA est révolutionnaire et m'a fait gagner un temps fou. L'interface est belle et intuitive. Je recommande à 100% !", date: "Il y a 2 jours" },
+    { id: 2, name: 'Marie C.', avatar: '/avatars/marie.png', rating: 4, text: "Très bonne application, je l'utilise tous les jours. La fonctionnalité de communauté est géniale pour échanger des idées. J'aimerais juste un mode sombre un peu plus contrasté.", date: "Il y a 1 semaine" },
+    { id: 3, name: 'Julien L.', avatar: '/avatars/julien.png', rating: 5, text: "Simple, efficace, puissant. Fiche a changé ma façon de travailler et de communiquer. Le support est réactif et les mises à jour sont pertinentes. Bravo à l'équipe !", date: "Il y a 3 semaines" },
+  ];
+
   // Notification sound
   const notificationSoundRef = useRef<HTMLAudioElement | null>(null);
   const prevTotalUnreadDirectMessages = useRef(0);
@@ -420,7 +433,7 @@ const FicheApp = () => {
 
     try {
       const usersRef = collection(db, "users");
-      const q = query(usersRef, where("uid", "in", newUsersToFetch));
+      const q = query(usersRef, where("visibility", "==", "public"));
       const querySnapshot = await getDocs(q);
       const fetchedUsers: {[key: string]: any} = {};
       querySnapshot.forEach((doc) => {
@@ -738,7 +751,6 @@ const FicheApp = () => {
     await signOut(auth);
     setSelectedConversation(null);
     setSelectedCommunity(null);
-    setActiveTab('editor');
   };
 
   const handleResetAI = () => {
@@ -1160,6 +1172,17 @@ const handleDeleteConversation = async (conversationId: string | null) => {
     setCurrentTheme(themeName);
   }
 
+  const handleReviewSubmit = () => {
+    if (currentRating === 0) {
+      toast({ title: "Note requise", description: "Veuillez sélectionner une note avant d'envoyer.", variant: "destructive" });
+      return;
+    }
+    // TODO: Implement backend submission
+    toast({ title: "Avis envoyé !", description: "Merci pour votre retour." });
+    setCurrentRating(0);
+    setReviewText('');
+  }
+
   const totalUnreadDirectMessages = conversations.reduce((acc, conv) => {
       return acc + (conv.unreadCounts?.[user?.uid || ''] || 0);
   }, 0);
@@ -1534,11 +1557,11 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                           </div>
                       )}
                     </button>
-                    <button className="flex items-center p-3 sm:p-4 rounded-lg bg-orange-100/50 hover:bg-orange-100 transition-colors">
+                    <button onClick={() => setActiveTab('reviews')} className="flex items-center p-3 sm:p-4 rounded-lg bg-orange-100/50 hover:bg-orange-100 transition-colors">
                       <div className="p-2 bg-orange-200 rounded-lg mr-3 sm:mr-4">
-                        <Send className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600" />
+                        <Star className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600" />
                       </div>
-                      <span className="font-semibold text-orange-800 text-sm sm:text-base">Partager</span>
+                      <span className="font-semibold text-orange-800 text-sm sm:text-base">Avis & Votes</span>
                     </button>
                   </div>
                 </div>
@@ -1781,15 +1804,84 @@ const handleDeleteConversation = async (conversationId: string | null) => {
             )}
            </div>
         )}
-
-        {activeTab === 'ia' && (
-          <div className="h-full overflow-y-auto px-4 py-6 scroll-hover">
+        
+        {activeTab === 'reviews' && (
+          <div className="h-full overflow-y-auto p-4 sm:p-6 space-y-6 scroll-hover">
             <div className="backdrop-blur-lg bg-white/90 rounded-2xl shadow-xl border border-blue-200/50 p-6 text-center">
-              <div className="w-16 h-16 bg-gradient-to-r from-teal-500 to-cyan-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Bot className="h-8 w-8 text-white" />
+              <div className="inline-flex items-center space-x-2 bg-orange-100 rounded-full px-3 py-1 text-orange-700 text-xs font-medium mb-3">
+                <Star className="h-3 w-3" />
+                <span>Avis & Votes</span>
               </div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">Assistant IA</h2>
-              <p className="text-sm text-gray-600 mb-6">Cette section est en cours de développement.</p>
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+                Votre opinion compte
+              </h1>
+              <p className="text-sm sm:text-base text-gray-600">
+                Aidez-nous à nous améliorer en laissant un avis.
+              </p>
+            </div>
+
+            <Card className="backdrop-blur-lg bg-white/90 shadow-xl border border-blue-200/50">
+              <CardHeader>
+                <CardTitle>Laissez votre avis</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div 
+                  className="flex items-center justify-center space-x-2"
+                  onMouseLeave={() => setHoverRating(0)}
+                >
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Star
+                      key={star}
+                      className={`h-8 w-8 cursor-pointer transition-colors ${
+                        (hoverRating || currentRating) >= star
+                          ? 'text-yellow-400 fill-yellow-400'
+                          : 'text-gray-300'
+                      }`}
+                      onClick={() => setCurrentRating(star)}
+                      onMouseEnter={() => setHoverRating(star)}
+                    />
+                  ))}
+                </div>
+                <Textarea
+                  placeholder="Partagez en détail votre expérience avec l'application..."
+                  value={reviewText}
+                  onChange={(e) => setReviewText(e.target.value)}
+                  className="min-h-[100px] bg-blue-50/30"
+                />
+              </CardContent>
+              <CardFooter>
+                <Button onClick={handleReviewSubmit} className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600">
+                  Envoyer mon avis
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <div className="space-y-4">
+                <h3 className="text-xl font-bold text-gray-900">Avis récents</h3>
+                {placeholderReviews.map(review => (
+                    <Card key={review.id} className="backdrop-blur-lg bg-white/90 shadow-xl border border-blue-200/50">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <div className="flex items-center space-x-3">
+                                <Avatar>
+                                    <AvatarImage src={review.avatar} alt={review.name} data-ai-hint="person portrait" />
+                                    <AvatarFallback>{review.name.charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                    <p className="font-semibold">{review.name}</p>
+                                    <p className="text-xs text-muted-foreground">{review.date}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center">
+                                {[...Array(5)].map((_, i) => (
+                                    <Star key={i} className={`h-4 w-4 ${i < review.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`} />
+                                ))}
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-sm text-gray-700">{review.text}</p>
+                        </CardContent>
+                    </Card>
+                ))}
             </div>
           </div>
         )}
@@ -1830,11 +1922,11 @@ const handleDeleteConversation = async (conversationId: string | null) => {
             )}
           </button>
           <button 
-            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'ia' ? 'text-primary bg-primary/10' : 'text-gray-500'}`}
-            onClick={() => { setActiveTab('ia'); setSelectedConversation(null); setSelectedCommunity(null); }}
+            className={`relative flex flex-col items-center p-3 rounded-lg transition-all duration-300 ${activeTab === 'reviews' ? 'text-primary bg-primary/10' : 'text-gray-500'}`}
+            onClick={() => { setActiveTab('reviews'); setSelectedConversation(null); setSelectedCommunity(null); }}
           >
-            <Bot className="h-5 w-5 mb-1" />
-            <span className="text-xs font-medium">IA</span>
+            <Star className="h-5 w-5 mb-1" />
+            <span className="text-xs font-medium">Avis</span>
           </button>
         </div>
       </nav>
@@ -2209,3 +2301,4 @@ export default FicheApp;
     
 
     
+
