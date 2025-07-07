@@ -33,7 +33,7 @@
         },
         "members": {
           "$uid": {
-            ".validate": "(newData.val() == data.val()) || (auth.uid == $uid && ((!data.exists() && newData.exists() && newData.hasChildren(['joinedAt']) && newData.child('joinedAt').isNumber()) || (data.exists() && !newData.exists())))"
+            ".validate": "(newData.val() == data.val()) || (auth.uid == $uid && ((!data.exists() && newData.exists() && newData.hasChildren(['joinedAt'])) || (data.exists() && !newData.exists())))"
           }
         },
         "$other": {
