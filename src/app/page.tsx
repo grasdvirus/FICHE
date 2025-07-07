@@ -593,11 +593,10 @@ const FicheApp = () => {
         }, (error) => {
             console.error("Error fetching communities from RTDB:", error);
             setIsLoadingCommunities(false);
-            toast({ title: "Erreur", description: "Impossible de charger les communautés.", variant: 'destructive' });
         });
   
         return () => unsubscribe();
-    }, [toast]);
+    }, []);
 
     // Listen for community messages
     useEffect(() => {
@@ -821,14 +820,21 @@ const FicheApp = () => {
     if (!user) return;
     try {
         const usersRef = collection(db, "users");
-        // Update query to only find users with public visibility
-        const q = query(usersRef, where("uid", "!=", user.uid), where("visibility", "==", "public"));
+        // Query for public users and filter out the current user on the client to avoid needing a composite index.
+        const q = query(usersRef, where("visibility", "==", "public"));
         const querySnapshot = await getDocs(q);
-        const allUsers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const allUsers = querySnapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(u => u.id !== user.uid);
         setUsersToMessage(allUsers);
         setShowNewMessageModal(true);
     } catch(error: any) {
         console.error("Impossible de lister les utilisateurs:", error);
+        toast({
+            title: "Erreur",
+            description: "Impossible de charger la liste des utilisateurs.",
+            variant: "destructive"
+        });
     }
   };
   
