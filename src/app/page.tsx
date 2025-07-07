@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
-import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown, Loader2, X, Settings, FileEdit } from 'lucide-react';
+import { Mail, Users, FileText, Sparkles, Send, Bot, Lightbulb, Plus, Search, Home, MessageCircle, User, ArrowLeft, Check, CheckCheck, Trash2, RefreshCw, Volume2, LogOut, ChevronDown, Loader2, X, Settings, FileEdit, Info } from 'lucide-react';
 import { analyzeText, type AnalyzeTextOutput } from '@/ai/flows/analyze-text';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import { generateCommunityDescription } from '@/ai/flows/generate-community-description';
@@ -22,7 +22,7 @@ import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWith
 import { auth, googleProvider, db, rtdb } from '@/lib/firebase';
 import { collection, addDoc, query, where, onSnapshot, serverTimestamp, doc, setDoc, getDocs, orderBy, getDoc, updateDoc, arrayUnion, writeBatch, increment, deleteDoc } from 'firebase/firestore';
 import { ref as rtdbRef, set as rtdbSet, onValue, onDisconnect, serverTimestamp as rtdbServerTimestamp, push, runTransaction, query as rtdbQuery, orderByChild, update as rtdbUpdate, remove as rtdbRemove } from 'firebase/database';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { CommunityCard, CreateCommunityCard } from '@/components/community-cards';
 import { Switch } from '@/components/ui/switch';
@@ -144,7 +144,7 @@ const ChatView = ({ user, conversation, usersCache, messages, newMessage, setNew
   );
 };
 
-const CommunityChatView = ({ user, community, messages, newMessage, setNewMessage, onSendMessage, onBack, isCreator, onEdit, onDelete, suggestions, isSuggesting, onSuggestionClick }: any) => {
+const CommunityChatView = ({ user, community, messages, newMessage, setNewMessage, onSendMessage, onBack, isCreator, onEdit, onDelete, suggestions, isSuggesting, onSuggestionClick, onShowInfo }: any) => {
     const messagesEndRef = useRef<null | HTMLDivElement>(null);
   
     const scrollToBottom = () => {
@@ -171,25 +171,30 @@ const CommunityChatView = ({ user, community, messages, newMessage, setNewMessag
                     <h2 className="font-semibold text-gray-900">{community.name}</h2>
                     <p className="text-xs text-gray-500">{community.memberCount} {community.memberCount > 1 ? 'membres' : 'membre'}</p>
                 </div>
-                {isCreator && (
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                                <Settings className="h-5 w-5" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={onEdit}>
-                                <FileEdit className="mr-2 h-4 w-4" />
-                                <span>Modifier</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                <span>Supprimer</span>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                )}
+                <div className="flex items-center space-x-1">
+                    <Button variant="ghost" size="icon" onClick={onShowInfo} aria-label="Informations sur la communauté">
+                        <Info className="h-5 w-5" />
+                    </Button>
+                    {isCreator && (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                    <Settings className="h-5 w-5" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={onEdit}>
+                                    <FileEdit className="mr-2 h-4 w-4" />
+                                    <span>Modifier</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    <span>Supprimer</span>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    )}
+                </div>
             </div>
   
             {/* Messages Area */}
@@ -305,6 +310,7 @@ const FicheApp = () => {
   const [editingCommunity, setEditingCommunity] = useState<any | null>(null);
   const [showDeleteCommunityConfirm, setShowDeleteCommunityConfirm] = useState<any | null>(null);
   const [isUpdatingCommunity, setIsUpdatingCommunity] = useState(false);
+  const [showCommunityInfoModal, setShowCommunityInfoModal] = useState(false);
 
 
   // Settings states
@@ -1724,6 +1730,7 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                     suggestions={communityMessageSuggestions}
                     isSuggesting={isSuggestingCommunity}
                     onSuggestionClick={(suggestion: string) => setNewCommunityMessage(prev => `${prev.trim()} ${suggestion} `)}
+                    onShowInfo={() => setShowCommunityInfoModal(true)}
                 />
             ) : (
               <div className="h-full overflow-y-auto p-4 md:p-6 space-y-8 scroll-hover">
@@ -2147,6 +2154,50 @@ const handleDeleteConversation = async (conversationId: string | null) => {
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
+      )}
+      
+      {/* Community Info Modal */}
+      {showCommunityInfoModal && selectedCommunity && (
+        <Dialog open={showCommunityInfoModal} onOpenChange={setShowCommunityInfoModal}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-lg flex items-center justify-center shrink-0">
+                           <span className="text-2xl text-white font-bold">{selectedCommunity.name.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <span className="truncate">{selectedCommunity.name}</span>
+                    </DialogTitle>
+                    <DialogDescription>
+                        Informations sur la communauté.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4 text-sm">
+                    <div>
+                        <h4 className="font-semibold mb-1 text-gray-800">Description</h4>
+                        <p className="text-muted-foreground bg-gray-100 dark:bg-gray-800 p-3 rounded-md">{selectedCommunity.description}</p>
+                    </div>
+                    <div>
+                        <h4 className="font-semibold mb-1 text-gray-800">Créateur</h4>
+                        <p className="text-muted-foreground">{usersCache[selectedCommunity.creatorId]?.displayName || 'Inconnu'}</p>
+                    </div>
+                    <div>
+                        <h4 className="font-semibold mb-1 text-gray-800">Date de création</h4>
+                        <p className="text-muted-foreground">
+                            {selectedCommunity.createdAt ? format(new Date(selectedCommunity.createdAt), 'd MMMM yyyy', { locale: fr }) : 'Inconnue'}
+                        </p>
+                    </div>
+                     <div>
+                        <h4 className="font-semibold mb-1 text-gray-800">Membres</h4>
+                        <p className="text-muted-foreground">{selectedCommunity.memberCount} {selectedCommunity.memberCount > 1 ? 'membres' : 'membre'}</p>
+                    </div>
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button type="button">Fermer</Button>
+                    </DialogClose>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
       )}
 
     </div>
